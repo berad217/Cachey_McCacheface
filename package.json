@@ -1,0 +1,13 @@
+{
+  "name": "cachey-mccacheface",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local cache-warmth dashboard and tier-downgrade alarm for Claude Code usage.",
+  "scripts": {
+    "start": "bun run server.js",
+    "check": "bun run alarm.js",
+    "notify": "bun run notify.js",
+    "scan": "bun run lib/scan.js"
+  }
+}

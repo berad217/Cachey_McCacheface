@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cachey_McCacheface</title>
+<style>
+  :root {
+    --bg: #faf9f5; --surface: #ffffff; --line: rgba(0,0,0,0.12);
+    --text: #1a1a18; --muted: #6b6a64; --hint: #97968e;
+    --warm: #1d9e75; --cool: #ba7517; --cold: #a32d2d; --accent: #534ab7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1f1e1c; --surface: #2a2927; --line: rgba(255,255,255,0.14);
+      --text: #ecebe6; --muted: #a3a29a; --hint: #76756e;
+      --warm: #5dcaa5; --cool: #ef9f27; --cold: #f09595; --accent: #afa9ec;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif; line-height: 1.5; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 20px; font-weight: 500; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+  .banner { background: var(--cold); color: #fff; padding: 12px 16px; border-radius: 10px; margin-bottom: 20px; font-size: 14px; }
+  .section { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 10px; }
+  .thread { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .thread.urgent { border-color: var(--cool); }
+  .tproj { font-size: 14px; font-weight: 500; }
+  .tcount { font-size: 30px; font-weight: 500; line-height: 1.15; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  .tmeta { font-size: 12px; color: var(--muted); }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 0.5px solid var(--line); margin-left: 6px; vertical-align: 2px; color: var(--muted); }
+  .empty { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 16px; color: var(--muted); font-size: 14px; }
+  .cooled { font-size: 12px; color: var(--hint); margin: 4px 0 26px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
+  .card { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card .k { font-size: 12px; color: var(--muted); }
+  .card .v { font-size: 24px; font-weight: 500; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .n { font-size: 12px; color: var(--hint); margin-top: 2px; }
+  .splitbar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; border: 0.5px solid var(--line); }
+  .splitbar > div { display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .charts { display: grid; grid-template-columns: 1fr; gap: 22px; margin-top: 22px; }
+  .chartbox { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .cwrap { position: relative; width: 100%; }
+  .foot { color: var(--hint); font-size: 12px; margin-top: 26px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Cachey_McCacheface</h1>
+  <p class="sub">Every thread you touched recently keeps its own warm cache on its own clock. Jump back to one before its countdown hits zero and its context is re-read cheap; let it expire and the next turn there rebuilds it once.</p>
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <p class="section">Warm threads &mdash; soonest to expire first</p>
+  <div class="board" id="board"></div>
+  <div class="cooled" id="cooled"></div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="chartbox">
+    <p class="section">Re-warm tokens by cause &mdash; only the amber slice is yours to fix</p>
+    <div class="splitbar" id="splitbar"></div>
+    <div class="legend" id="splitlegend"></div>
+  </div>
+
+  <div class="charts">
+    <div class="chartbox">
+      <p class="section">How long you were gone before an idle re-warm</p>
+      <div class="cwrap" style="height:200px"><canvas id="gapsChart" role="img" aria-label="Idle re-warm gap distribution"></canvas></div>
+    </div>
+    <div class="chartbox">
+      <p class="section">Cache churn by project (M tokens re-written, all causes)</p>
+      <div class="cwrap" style="height:340px"><canvas id="projChart" role="img" aria-label="Cache churn by project"></canvas></div>
+    </div>
+  </div>
+
+  <p class="foot" id="foot"></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const GRAY = "#b4b2a9", TEAL = "#1d9e75", AMBER = "#ef9f27";
+let state = null, gapsChart = null, projChart = null;
+
+function fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(0)+"M" : n >= 1e3 ? (n/1e3).toFixed(0)+"k" : ""+Math.round(n); }
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+function renderStatic(d) {
+  const g = d.global;
+
+  const b = document.getElementById("banner");
+  if (d.alarm && d.alarm.downgrade) {
+    b.style.display = "block";
+    b.textContent = "Cache tier downgrade: " + (d.alarm.recent5mShare*100).toFixed(1) +
+      "% of recent writes on the 5-minute tier. Your warm window may have collapsed to ~5 min.";
+  } else { b.style.display = "none"; }
+
+  document.getElementById("cards").innerHTML = [
+    ["Cache tier", (g.tier1hPct*100).toFixed(2)+"% 1h", "of all writes"],
+    ["Warm hit ratio", (g.warmRatio*100).toFixed(1)+"%", fmt(g.read)+" read warm"],
+    ["Avoidable waste", "~"+(g.wastePct*100).toFixed(0)+"%", "of warm-read spend"],
+    ["Idle pickups", fmt(g.idleReWarms), "threads left >1h"],
+  ].map(([k,v,n]) => '<div class="card"><div class="k">'+k+'</div><div class="v">'+v+'</div><div class="n">'+n+'</div></div>').join("");
+
+  const idle = g.idleReWarmTokens, tool = g.toolReWarmTokens, tot = Math.max(1, idle+tool);
+  document.getElementById("splitbar").innerHTML =
+    '<div style="width:'+(idle/tot*100)+'%;background:'+AMBER+';color:#412402">'+fmt(idle)+'</div>' +
+    '<div style="width:'+(tool/tot*100)+'%;background:'+GRAY+';color:#2c2c2a">'+fmt(tool)+'</div>';
+  document.getElementById("splitlegend").innerHTML =
+    '<span><span class="dot" style="background:'+AMBER+'"></span>Idle &mdash; you stepped away ('+g.idleReWarms+')</span>' +
+    '<span><span class="dot" style="background:'+GRAY+'"></span>Tool &mdash; compaction / big add ('+g.toolReWarms+')</span>';
+
+  const gb = g.gapBuckets;
+  if (gapsChart) gapsChart.destroy();
+  gapsChart = new Chart(document.getElementById("gapsChart"), {
+    type: "bar",
+    data: { labels: ["1-3h away","3-12h away",">12h away"], datasets: [{ data: [gb["1-3h"], gb["3-12h"], gb[">12h"]], backgroundColor: AMBER, borderRadius: 4 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0, color: css("--muted") }, grid: { color: css("--line") } },
+                x: { ticks: { color: css("--muted") }, grid: { display: false } } } }
+  });
+
+  const top = d.projects.slice(0, 6);
+  if (projChart) projChart.destroy();
+  projChart = new Chart(document.getElementById("projChart"), {
+    type: "bar",
+    data: { labels: top.map(p => p.name.slice(0,16)), datasets: [{ data: top.map(p => +(p.reWarmTokens/1e6).toFixed(1)), backgroundColor: TEAL, borderRadius: 4 }] },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, title: { display: true, text: "M tokens", color: css("--muted") }, ticks: { color: css("--muted") }, grid: { color: css("--line") } },
+                y: { ticks: { color: css("--muted") }, grid: { display: false } } } }
+  });
+
+  document.getElementById("foot").textContent =
+    g.sessions + " sessions, " + g.turns.toLocaleString() + " turns - updated " + new Date(d.generatedAt).toLocaleTimeString();
+}
+
+function renderThreads() {
+  if (!state) return;
+  const now = Date.now();
+  const threads = (state.threads || []).map(t => {
+    const minsSince = (now - t.lastT) / 60000;
+    return { ...t, minsSince, remaining: t.ttlMin - minsSince };
+  });
+  const warm = threads.filter(t => t.remaining > 0).sort((a,b) => a.remaining - b.remaining);
+  const cooled = threads.filter(t => t.remaining <= 0 && t.minsSince < 90).sort((a,b) => a.minsSince - b.minsSince);
+
+  const board = document.getElementById("board");
+  if (!warm.length) {
+    board.innerHTML = '<div class="empty">No warm threads right now &mdash; your next message to any project starts cold (one rebuild), then warms again.</div>';
+  } else {
+    board.innerHTML = warm.map(t => {
+      const m = Math.floor(t.remaining), s = Math.floor((t.remaining - m) * 60);
+      const urgent = t.remaining < 10;
+      const color = urgent ? css("--cool") : css("--warm");
+      return '<div class="thread' + (urgent ? ' urgent' : '') + '">' +
+        '<div class="tproj">' + t.project + '<span class="pill">' + t.tier + '</span></div>' +
+        '<div class="tcount" style="color:' + color + '">' + m + 'm ' + String(s).padStart(2,"0") + 's</div>' +
+        '<div class="tmeta">touched ' + Math.round(t.minsSince) + 'm ago &middot; ' + (t.warmRatio*100).toFixed(0) + '% warm</div>' +
+        '</div>';
+    }).join("");
+  }
+
+  document.getElementById("cooled").innerHTML = cooled.length
+    ? "recently cooled: " + cooled.map(t => t.project + " (" + Math.round(t.minsSince) + "m ago)").join(" &middot; ")
+    : "";
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("/api/summary");
+    state = await r.json();
+    renderStatic(state);
+    renderThreads();
+  } catch (e) {
+    document.getElementById("foot").textContent = "could not reach server - is it running?";
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
+setInterval(renderThreads, 1000);
+</script>
+</body>
+</html>
