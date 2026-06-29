@@ -65,7 +65,7 @@ When Brad asks, when you're stuck, or at a milestone. Put it at `docs/.agents/cu
 ## Project-Specific Notes
 
 - **Read-only by design.** It only *reads* transcripts; it never writes to `~/.claude`.
-- **Not a git repo (yet).** No version control initialized as of v1.
+- **Git-tracked, local only.** Repo on branch `master`; no remote configured (no off-machine backup yet).
 - **Windows + Bun.** Console output stays ASCII (Brad's rule). The dashboard is browser HTML — no such limit there.
 - **The re-warm metric is a heuristic**, not ground truth: warm-prefix-collapse + large rebuild, gated on the preceding time gap (>1h = idle/avoidable, <1h = tool/compaction). Upper-bound-ish. See spec.md assumptions.
 - **Why it exists (the punchline):** Anthropic removed the time-of-day usage penalty (2026-05-06), so the clock is no longer a cost lever — cache discipline is. This tool makes the invisible cache state visible. Full background in DEVLOG.md and the `reference-claude-usage-mechanics` memory.

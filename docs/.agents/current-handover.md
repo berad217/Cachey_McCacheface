@@ -16,7 +16,8 @@ New session, cwd is Cachey_McCacheface:
 
 ## State of the world (live bits worth knowing)
 - A dev server may already be running on :4317 from a prior session. The launcher is idempotent (a second start bows out cleanly). `Get-Process bun` to check; `bun run start` or the desktop shortcut to (re)launch.
-- An hourly Scheduled Task **"Cachey tier watch"** runs `notify.js` and pops a Windows balloon only if the cache tier silently drops 1h→5m. Remove with `Unregister-ScheduledTask -TaskName "Cachey tier watch"`.
+- An hourly Scheduled Task **"Cachey tier watch"** pops a Windows balloon only if the cache tier silently drops 1h→5m; silent otherwise. Remove with `Unregister-ScheduledTask -TaskName "Cachey tier watch"` (also delete `run-notify.vbs`).
+  - **Launches via `run-notify.vbs` (wscript), not `bun.exe` directly (changed 2026-06-29).** `bun.exe` is a console app, so the scheduler used to pop a focusable console window every run and steal keyboard focus mid-typing. The `.vbs` runs bun with a hidden window (`Run cmd, 0, False`); the task is also flagged `Hidden`. `notify.js` is unchanged. If you ever rewire the action back to `bun.exe`, the focus-theft bug returns.
 
 ## How we got here (the why, condensed)
 - Started as "is daytime usage ~3x cheaper than evening?" Research killed that premise: Anthropic **removed the time-of-day usage penalty on 2026-05-06**. The clock is not a cost lever. The real lever is **cache discipline**.
