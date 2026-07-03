@@ -39,11 +39,18 @@ That's the whole install. There is no step 2. It never phones home, never writes
   the scary raw number, and Cachey refuses to lie to you about it.
 - **Churn by project** — where the re-writes pile up. Idle waste (your pacing) is kept
   separate from tool-driven compaction (genuinely not your fault).
+- **Closest calls** — every re-warm that happened *inside* the TTL window (should have hit
+  cache, didn't), listed individually — project, gap, tokens, when — closest gap first.
+  The aggregate "tool re-warm" count assumes a cause it can't actually verify; this table
+  lets you look at the specific instances instead of trusting the label.
 
 ## How it decides what's a "re-warm"
 A heuristic, and it says so: a previously-large warm prefix collapses and a large block gets
-re-written. The preceding time gap splits the blame — a **>1h** gap means you walked away
-(avoidable); **<1h** means the tool compacted or bulk-loaded context (unavoidable). It's an
+re-written. The preceding time gap splits the blame against the session's *actual* tier TTL
+(60m on the 1-hour tier, 5m on the 5-minute tier) — beyond it means you walked away
+(avoidable); inside it means the cache missed despite still being in its window. That second
+bucket gets labeled "tool / compaction," but that cause is inferred, not confirmed — no
+compaction marker exists in Claude Code's transcripts to check against. It's an
 upper-bound-ish estimate, not gospel. Honesty over drama is the house style.
 
 ## Why the ridiculous name

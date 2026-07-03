@@ -83,6 +83,60 @@ downgrade (silent otherwise). Registered as an hourly Scheduled Task
 
 **git:** repo initialized, first commit (was not under version control before).
 
+## 2026-07-03 - Sub-TTL miss breakdown
+
+### Prompted by
+Brad asked whether the dashboard actually measures real cache hits or just
+assumes a hit from reply timing. Answer: the headline numbers (`read`,
+`write`, tier) are real, pulled straight from the API's per-turn `usage`
+block (`cache_read_input_tokens` / `cache_creation_input_tokens` /
+`ephemeral_*_input_tokens`) - not inferred from elapsed time. The one place
+timing *is* an assumption is the live per-thread countdown (a forward
+projection, since there's no "is my cache warm right now" endpoint).
+
+Follow-up: the existing `toolReWarms` bucket (re-warms with gap <=60m,
+labeled "compaction / big add" in the UI) is exactly "cache missed despite
+being inside the TTL window" - but it was an unlabeled aggregate (1990
+events, 365M tokens in the live data) with an unverified cause. Checked all
+of Brad's transcripts across every project for an actual compaction marker
+(`isCompactSummary`, `compactMetadata`, the "session is being continued..."
+preamble) - none exist anywhere. So "compaction" was an assumption dressed up
+as a label, same species of heuristic as the idle bucket, just less honestly
+flagged.
+
+### Built
+- `lib/scan.js`: `analyze()` now collects each sub-TTL-miss instance
+  (project, timestamp, gap-in-minutes, rewrite tokens) instead of only
+  incrementing an aggregate counter. Sorted closest-gap-first, capped at 50
+  in the API response with a total count alongside (`subTtlMisses`,
+  `subTtlMissesTotal`) so nothing is silently truncated.
+- `public/index.html`: new "Closest calls" table below the cause-split chart,
+  showing gap/project/tokens/when for the top 20, honestly labeled
+  "cause unverified."
+- Existing `toolReWarms` aggregate/label left unchanged - this is additive
+  detail, not a redefinition of the existing metric.
+
+### Finding (worth flagging, not yet acted on)
+Every entry surfaced at the top of the sorted list has a **0.0-minute gap**
+- these misses happen on the very next turn, not after some partial idle
+wait. That's more consistent with synchronous auto-compaction (which fires
+mid-session with no elapsed time) than with an early server-side eviction.
+Weak evidence the "compaction" label was probably right for at least this
+slice - but it's now inspectable instead of assumed.
+
+### Fixed same day: tier-aware TTL gate
+The gap/TTL gate was a flat 60 minutes regardless of a session's actual tier
+(5m vs 1h) - would have misclassified a genuine 5m-tier expiry (e.g. a 20m
+gap) as a "should-have-hit" tool re-warm. `analyze()` now tracks a
+running `tier` per session (refresh-on-use: updates to whichever tier the
+most recent write used - `w5m > w1h` -> `"5m"`, else `"1h"`; defaults to
+`"1h"` before any write, matching the overwhelming common case) and gates
+each turn against that tier's actual TTL (`TTL_5M_MIN` / `TTL_1H_MIN`)
+instead of a hardcoded constant. Verified: with 100% of current sessions on
+the 1h tier this is a no-op today (1990 -> 1993 tool re-warms, all from
+turns accumulated between runs, not from the fix) - it only changes
+behavior once a thread actually sits on the 5-minute tier.
+
 ### Next (v2 candidates, not committed)
 - Resolve the `/usage` % access question (4 avenues: local cache file, rate-
   limit headers, the endpoint `/usage` calls, UI scrape) -> then price fast

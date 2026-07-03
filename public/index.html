@@ -47,6 +47,10 @@
   .charts { display: grid; grid-template-columns: 1fr; gap: 22px; margin-top: 22px; }
   .chartbox { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 14px 16px; }
   .cwrap { position: relative; width: 100%; }
+  .misstable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .misstable th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px; border-bottom: 0.5px solid var(--line); }
+  .misstable td { padding: 4px 8px; border-bottom: 0.5px solid var(--line); font-variant-numeric: tabular-nums; }
+  .misstable tr:last-child td { border-bottom: none; }
   .foot { color: var(--hint); font-size: 12px; margin-top: 26px; text-align: center; }
 </style>
 </head>
@@ -67,6 +71,11 @@
     <p class="section">Re-warm tokens by cause &mdash; only the amber slice is yours to fix</p>
     <div class="splitbar" id="splitbar"></div>
     <div class="legend" id="splitlegend"></div>
+  </div>
+
+  <div class="chartbox">
+    <p class="section">Closest calls &mdash; cache missed despite being inside the TTL window (cause unverified: compaction, a big tool add, or a real early eviction &mdash; closest gap first)</p>
+    <div id="subttl"></div>
   </div>
 
   <div class="charts">
@@ -138,6 +147,29 @@ function renderStatic(d) {
 
   document.getElementById("foot").textContent =
     g.sessions + " sessions, " + g.turns.toLocaleString() + " turns - updated " + new Date(d.generatedAt).toLocaleTimeString();
+
+  renderSubTtl(d);
+}
+
+function renderSubTtl(d) {
+  const rows = d.subTtlMisses || [];
+  const total = d.subTtlMissesTotal || rows.length;
+  const el = document.getElementById("subttl");
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty">None recorded &mdash; every miss so far happened after the TTL window closed.</div>';
+    return;
+  }
+  const now = Date.now();
+  const shown = rows.slice(0, 20);
+  el.innerHTML =
+    '<table class="misstable"><thead><tr><th>Gap</th><th>Project</th><th>Tokens</th><th>When</th></tr></thead><tbody>' +
+    shown.map(m => {
+      const agoH = (now - m.t) / 3600000;
+      const ago = agoH < 24 ? Math.round(agoH) + "h ago" : Math.round(agoH / 24) + "d ago";
+      return '<tr><td>' + m.gapMin.toFixed(1) + 'm</td><td>' + m.project + '</td><td>' + fmt(m.tokens) + '</td><td>' + ago + '</td></tr>';
+    }).join("") +
+    '</tbody></table>' +
+    '<p class="n" style="margin-top:8px;color:var(--hint)">showing ' + shown.length + ' of ' + total + ' total, closest gap first</p>';
 }
 
 function renderThreads() {

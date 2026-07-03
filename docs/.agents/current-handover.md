@@ -1,6 +1,6 @@
 # Handover - Cachey_McCacheface
 
-_Last updated: 2026-06-25. This is the ephemeral "where we are now" doc. The durable stuff lives in spec.md / DEVLOG.md / onboarding.md — don't duplicate it here._
+_Last updated: 2026-07-03. This is the ephemeral "where we are now" doc. The durable stuff lives in spec.md / DEVLOG.md / onboarding.md — don't duplicate it here._
 
 ## Quick Start
 New session, cwd is Cachey_McCacheface:
@@ -10,9 +10,29 @@ New session, cwd is Cachey_McCacheface:
 
 ## Project Context
 - **What:** local, read-only cache-warmth dashboard for Claude Code (reads `~/.claude/projects/**/*.jsonl`).
-- **Phase:** v1 complete, "live with it." No active build in progress.
-- **git:** `master`, genesis commit `312e18a` (2026-06-25). Local only — no remote, not pushed.
+- **Phase:** v1 complete, "live with it," plus a small 2026-07-03 refinement (see below). No active build in progress.
+- **git:** `master`, genesis commit `312e18a` (2026-06-25). Pushed to `origin` (`github.com/berad217/Cachey_McCacheface`, private) as of 2026-06-29.
 - **Stack:** Bun, vanilla JS, zero deps, zero network.
+
+## Since v1 shipped (2026-07-03)
+Brad asked whether the dashboard measures real cache hits or assumes them from reply
+timing — prompted a look under the hood, two small changes landed (full detail in
+today's `DEVLOG.md` entry):
+- **"Closest calls" table** (dashboard, below the cause-split chart): the `toolReWarms`
+  bucket (re-warms with a gap inside the TTL, previously just an aggregate labeled
+  "compaction / big add") is now also kept as a per-instance list — project, gap-in-minutes,
+  tokens, when — sorted closest-gap-first, so the ones actually worth a second look aren't
+  buried in a 1990-count aggregate. Every entry currently at the top has a **0.0-minute
+  gap** (happens on the very next turn), which is better evidence for synchronous
+  auto-compaction than for a real early eviction — but it's now inspectable, not assumed.
+- **Tier-aware TTL gate** (`lib/scan.js`): the idle/tool-miss split used to gate on a flat
+  60 minutes regardless of a session's actual tier. Now tracks a running per-session tier
+  (refresh-on-use) and gates against that tier's real TTL (60m or 5m). No behavior change
+  today — 100% of sessions are on the 1h tier — matters only if a thread ever drops to 5m.
+- Confirmed no compaction-boundary marker (`isCompactSummary`, `compactMetadata`, the
+  "session is being continued..." preamble) exists anywhere in Brad's transcripts, across
+  every project — so "compaction" was always an inferred label, never a verified one. Worth
+  remembering next time that word shows up in the UI.
 
 ## State of the world (live bits worth knowing)
 - A dev server may already be running on :4317 from a prior session. The launcher is idempotent (a second start bows out cleanly). `Get-Process bun` to check; `bun run start` or the desktop shortcut to (re)launch.
@@ -30,7 +50,7 @@ New session, cwd is Cachey_McCacheface:
 - Consequence: **v2's headline (price fast mode / calibrate cost weights against the real meter) is blocked on Anthropic**, not on us.
 
 ## Known limitations (don't mistake these for bugs)
-- Re-warm detection is a **heuristic** (warm-prefix-collapse + large rebuild, gated on the preceding time gap: >60m = idle/avoidable, <60m = tool/compaction). Upper-bound-ish.
+- Re-warm detection is a **heuristic** (warm-prefix-collapse + large rebuild, gated on the preceding time gap vs. the session's actual tier TTL: beyond it = idle/avoidable, inside it = "tool" bucket, cause unverified). Upper-bound-ish. The sub-TTL "tool" bucket's cause (compaction vs. something else) is inferred, not confirmed — see "Since v1 shipped" above.
 - Cost weights (read 0.1x, 1h write 2.0x, output ~5x) are **assumptions from API pricing** — uncalibrated, because the % meter is unavailable.
 - No test suite. Verification is empirical (`bun run scan` / hit `/api/summary`).
 - v1 scope is **locked** (see spec.md "does NOT"): no /usage correlation, no fast-mode pricing, no subagent transcripts, no DB. Don't drift without a decision.
@@ -41,7 +61,6 @@ New session, cwd is Cachey_McCacheface:
   - Manual `snapshot <pct>` logger — type the /usage % occasionally, let Cachey correlate it against the computed cost-equivalent over time (the hand-built workaround for the blocked API).
   - Resume v2 if Anthropic ships the usage endpoint (watch #44328 / #32796).
   - Persist daily snapshots → plot warm ratio / idle waste over many days.
-  - Push to a remote if you want off-machine backup.
 
 ## Parking lot
 - Idea: surface fast-mode turns on the dashboard (the `speed` field is in the JSONL) even without pricing them — at least flag "you were in fast mode but away."
