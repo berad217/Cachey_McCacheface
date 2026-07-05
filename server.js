@@ -19,6 +19,7 @@ function summary() {
 }
 
 const indexUrl = new URL("./public/index.html", import.meta.url);
+const chartUrl = new URL("./public/vendor/chart.umd.js", import.meta.url);
 
 try {
   Bun.serve({
@@ -29,6 +30,9 @@ try {
         return new Response(JSON.stringify(summary()), {
           headers: { "content-type": "application/json", "cache-control": "no-store" },
         });
+      }
+      if (url.pathname === "/vendor/chart.umd.js") {
+        return new Response(Bun.file(chartUrl), { headers: { "content-type": "text/javascript; charset=utf-8" } });
       }
       return new Response(Bun.file(indexUrl), { headers: { "content-type": "text/html; charset=utf-8" } });
     },

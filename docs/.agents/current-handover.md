@@ -11,7 +11,7 @@ New session, cwd is Cachey_McCacheface:
 ## Project Context
 - **What:** local, read-only cache-warmth dashboard for Claude Code (reads `~/.claude/projects/**/*.jsonl`).
 - **Phase:** v1 complete, "live with it," plus a small 2026-07-03 refinement (see below). No active build in progress.
-- **git:** `master`, genesis commit `312e18a` (2026-06-25). Pushed to `origin` (`github.com/berad217/Cachey_McCacheface`, private) as of 2026-06-29.
+- **git:** `master`, genesis commit `312e18a` (2026-06-25). Pushed to `origin` (`github.com/berad217/Cachey_McCacheface`, public).
 - **Stack:** Bun, vanilla JS, zero deps, zero network.
 
 ## Since v1 shipped (2026-07-03)

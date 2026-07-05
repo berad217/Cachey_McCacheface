@@ -4,6 +4,8 @@
 ' console of its own, and Run(cmd, 0, False) launches bun with a HIDDEN window
 ' (0) without waiting (False). The NotifyIcon balloon in notify.js still shows
 ' if a real cache-tier downgrade is detected - only the console window is gone.
-Dim shell
+Dim shell, fso, here
 Set shell = CreateObject("WScript.Shell")
-shell.Run """C:\Users\Brad\.bun\bin\bun.exe"" ""P:\software_projects\Cachey_McCacheface\notify.js""", 0, False
+Set fso = CreateObject("Scripting.FileSystemObject")
+here = fso.GetParentFolderName(WScript.ScriptFullName)
+shell.Run "bun """ & here & "\notify.js""", 0, False

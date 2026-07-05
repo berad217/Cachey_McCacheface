@@ -62,6 +62,8 @@ deserves an unserious name. It keeps expectations honest.
 ## The fine print
 - **Read-only by design.** It only reads transcripts. It will never touch `~/.claude`.
 - **Windows + Bun**, but the engine is just JS reading JSONL — portable in spirit.
+- **The one bundled file:** `public/vendor/chart.umd.js` (Chart.js 4.4.1, MIT) is vendored
+  locally so the dashboard renders its charts without a CDN call — keeping "no network" literally true.
 - Cost weights (read 0.1x, 1h write 2x, output ~5x) are **assumptions from API pricing**,
   not your real subscription meter — that meter isn't programmatically accessible yet.
 - See [`spec.md`](spec.md) for the locked v1 scope and assumptions, and [`DEVLOG.md`](DEVLOG.md)
