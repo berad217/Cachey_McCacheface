@@ -143,3 +143,27 @@ behavior once a thread actually sits on the 5-minute tier.
   mode and calibrate the cost weights against the real meter.
 - Persist daily snapshots -> plot warm ratio / waste over time.
 - Desktop notification on tier downgrade (wire `check` to a scheduler).
+
+## 2026-07-23 - Launcher regression: "Windows cannot find 'bun'"
+
+### Symptom + root cause
+Desktop shortcut -> `launch.bat` failed with "Windows cannot find 'bun'".
+Bun itself was fine (installed, in the *registry* User PATH). The 2026-07-05
+public-release commit (`2ab49e0`) de-hardcoded both launchers from
+`C:\Users\Brad\.bun\bin\bun.exe` to bare `bun`, making them depend on the
+PATH of the *spawning* process - and Explorer can carry a stale environment
+that predates the `.bun\bin` entry. Everything worked before that commit
+only because the full path was hardcoded.
+
+### Fix
+Both launchers now resolve bun explicitly with a portable fallback (keeps
+the no-hardcoded-user-paths goal for the public repo):
+- `launch.bat`: `set BUN=%USERPROFILE%\.bun\bin\bun.exe`, fall back to bare
+  `bun` if that file doesn't exist (non-default installs).
+- `run-notify.vbs`: same pattern via `ExpandEnvironmentStrings` +
+  `FileExists`.
+
+Verified by stripping `.bun` from PATH (reproduces the failing environment:
+`where bun` finds nothing) and running `launch.bat` - server came up,
+`/api/summary` returned HTTP 200. Scheduled task "Cachey tier watch" was
+unaffected in practice (last run 0x0) but got the same hardening.
