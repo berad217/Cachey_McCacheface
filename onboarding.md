@@ -16,7 +16,7 @@ All docs live at the project root:
 - **spec.md** — what it is, the *locked* v1 scope, the explicit scope guards (what v1 does NOT do), and the model assumptions (re-warm heuristic, cost weights). Read this first.
 - **DEVLOG.md** — why it exists and every decision so far (genesis + the research that reshaped it + revisions). Read the latest entry to catch up on a moving train.
 - **README.md** — quickstart and what the dashboard shows.
-- **Context / handover** — none yet. If you write a handover, drop it at `docs/.agents/current-handover.md` (create the folder) or `HANDOVER.md`.
+- **Context / handover** — `docs/.agents/current-handover.md`. The ephemeral "where we are now" delta; read it after the latest DEVLOG entry.
 
 ---
 

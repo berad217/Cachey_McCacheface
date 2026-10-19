@@ -167,3 +167,60 @@ Verified by stripping `.bun` from PATH (reproduces the failing environment:
 `where bun` finds nothing) and running `launch.bat` - server came up,
 `/api/summary` returned HTTP 200. Scheduled task "Cachey tier watch" was
 unaffected in practice (last run 0x0) but got the same hardening.
+
+## 2026-10-19 - `/usage` meter is readable headlessly (v2 unblocked-ish)
+
+### What changed in the world
+The handover's "blocked on Anthropic" premise was stale twice over:
+- The two issues it cited were already closed as duplicates when it was
+  written (#32796 on 2026-03-10, #44328 on 2026-04-10). Canonical issue is
+  **anthropics/claude-code#13585** (still OPEN, 128 thumbs, no Anthropic
+  reply as of 2026-10-05); sibling #21943 (local file / API) also open.
+- No official endpoint has shipped. But commenters on #13585 documented a
+  zero-cost path that works today.
+
+### Verified: headless `/usage`
+```
+claude -p --no-session-persistence --output-format json "/usage"
+```
+- Answered client-side: `total_cost_usd: 0`, all token counts 0,
+  `duration_api_ms: 0`, ~5 s wall. 4 runs, identical output.
+- `.result` is prose: session %, week (all models) %, week (Fable) %, each
+  with a reset time. Account-wide - **matched the desktop app's `/usage`
+  exactly** (7% / 60% / 0%, Brad confirmed 2026-10-19).
+- Also returns an approximate "what's contributing" block (last 24h / 7d:
+  % at >150k context, % from subagent-heavy sessions, top subagents/skills).
+  Overlaps Cachey's own territory; not yet cross-checked against `scan`.
+- `--no-session-persistence` matters: without it the call writes a transcript
+  into `~/.claude/projects`, which Cachey would then scan.
+
+### Gotchas (each one bit or would bite)
+- **Git Bash mangles it.** MSYS path conversion rewrites `/usage` to
+  `C:/Program Files/Git/usage`, which goes to the model as a normal prompt -
+  a real ~50K-token call. Run from PowerShell / `wscript`, or set
+  `MSYS_NO_PATHCONV=1`. A scheduled poller must never go through Git Bash.
+- **Reset-time format is unstable:** same output had `10:59am` and `11am`.
+  Parser must accept `H:MM` *and* bare `H` (a commenter's `H:MM`-only parser
+  silently nulled ~1/3 of readings).
+- **CLI auth is separate from the desktop app** and can expire. Expired
+  state returns `is_error: true` with result
+  `Failed to authenticate: OAuth session expired and could not be refreshed`
+  - a poller must check `is_error`, not just parse.
+- Prose is not a contract; any CLI update can change wording.
+
+### Checked and ruled out
+- `cachedUsageUtilization` in `~/.claude.json` (reported by a commenter):
+  absent on this machine (CLI 2.1.280).
+- Mod API `$.session.usage()` (structured `rateLimits`, reportedly since
+  2.1.287): not testable here, local CLI too old. Cleaner than parsing prose
+  if/when available.
+- `claude.ai/api/organizations/{id}/usage`: behind Cloudflare bot
+  protection; scraping it is not worth it.
+
+### Implication (not yet decided)
+The "manual `snapshot <pct>` logger" can be automated: poll headless
+`/usage` (e.g. from the existing hourly scheduled task), append readings,
+correlate against Cachey's computed cost-equivalent to calibrate the cost
+weights. Still v2 / outside spec.md's locked scope - needs an explicit
+decision. Design tension: Cachey itself stays zero-network, but the `claude`
+child process it would spawn talks to Anthropic.

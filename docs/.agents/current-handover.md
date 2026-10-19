@@ -1,6 +1,6 @@
 # Handover - Cachey_McCacheface
 
-_Last updated: 2026-07-03. This is the ephemeral "where we are now" doc. The durable stuff lives in spec.md / DEVLOG.md / onboarding.md — don't duplicate it here._
+_Last updated: 2026-10-19 (usage-meter section only; rest as of 2026-07-03 — later commits `2ab49e0` public-release prep and `dd9ae9a` launcher fix are in `DEVLOG.md`). This is the ephemeral "where we are now" doc. The durable stuff lives in spec.md / DEVLOG.md / onboarding.md — don't duplicate it here._
 
 ## Quick Start
 New session, cwd is Cachey_McCacheface:
@@ -46,20 +46,21 @@ today's `DEVLOG.md` entry):
 - Multi-thread board was a deliberate fix: each session has its own cache + countdown, so the dashboard shows all currently-warm threads, not one "active" thread.
 
 ## Decisions in flight / blocked
-- **`/usage` % is NOT programmatically accessible (resolved 2026-06-25).** Local cache files don't hold it; `anthropic-ratelimit-*` headers + Rate Limits API are API-key/org features, not the Max subscription meter. Open feature requests: anthropics/claude-code#44328, #32796.
-- Consequence: **v2's headline (price fast mode / calibrate cost weights against the real meter) is blocked on Anthropic**, not on us.
+- **`/usage` % IS readable headlessly (verified 2026-10-19, supersedes the 2026-06-25 "not accessible" call).** `claude -p --no-session-persistence --output-format json "/usage"` costs 0 tokens and matched the desktop `/usage` exactly. Output is prose, not a contract. Gotchas (Git Bash mangling = real billed call, unstable reset-time format, separate CLI auth that expires) are in the 2026-10-19 `DEVLOG.md` entry.
+- No *official* endpoint yet. #44328 / #32796 were closed as duplicates back in Mar/Apr; the live issue is anthropics/claude-code#13585 (sibling #21943).
+- Consequence: **v2's headline (calibrate cost weights against the real meter) is no longer blocked on Anthropic** — it's blocked on Brad deciding to lift the v1 scope lock.
 
 ## Known limitations (don't mistake these for bugs)
 - Re-warm detection is a **heuristic** (warm-prefix-collapse + large rebuild, gated on the preceding time gap vs. the session's actual tier TTL: beyond it = idle/avoidable, inside it = "tool" bucket, cause unverified). Upper-bound-ish. The sub-TTL "tool" bucket's cause (compaction vs. something else) is inferred, not confirmed — see "Since v1 shipped" above.
-- Cost weights (read 0.1x, 1h write 2.0x, output ~5x) are **assumptions from API pricing** — uncalibrated, because the % meter is unavailable.
+- Cost weights (read 0.1x, 1h write 2.0x, output ~5x) are **assumptions from API pricing** — still uncalibrated. The % meter is now readable (see above), but nothing records it yet.
 - No test suite. Verification is empirical (`bun run scan` / hit `/api/summary`).
 - v1 scope is **locked** (see spec.md "does NOT"): no /usage correlation, no fast-mode pricing, no subagent transcripts, no DB. Don't drift without a decision.
 
 ## Next steps
 - **Immediate:** none. The project is at its natural "done" line — use it.
 - **Elective (Brad's call):**
-  - Manual `snapshot <pct>` logger — type the /usage % occasionally, let Cachey correlate it against the computed cost-equivalent over time (the hand-built workaround for the blocked API).
-  - Resume v2 if Anthropic ships the usage endpoint (watch #44328 / #32796).
+  - Automated `/usage` snapshot logger — poll headless `/usage` (not through Git Bash), append readings, correlate against Cachey's computed cost-equivalent over time. Replaces the old "type the % by hand" idea. v2 scope: needs a decision.
+  - Swap to the mod API `$.session.usage()` (structured, reportedly CLI >= 2.1.287) if it pans out — cleaner than parsing prose. Official endpoint: watch #13585.
   - Persist daily snapshots → plot warm ratio / idle waste over many days.
 
 ## Parking lot
