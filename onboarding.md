@@ -29,7 +29,7 @@ See Brad's global preferences (his Claude Code `CLAUDE.md`) for the full picture
 ## Source Map
 
 - **lib/scan.js** — the engine. Lists/parses `~/.claude/projects/**/*.jsonl`; computes warm hit ratio, cache tier (1h vs 5m), idle vs tool-driven re-warms, per-thread warmth, and churn by project. Pure, no deps. Also a CLI (`bun run scan`).
-- **server.js** — Bun server on :4317. Serves the dashboard at `/` and JSON at `/api/summary` (5s cache). Idempotent — a second launch on a taken port bows out cleanly.
+- **server.js** — Bun server on :4317. Serves the dashboard at `/` and JSON at `/api/summary` (stale-while-revalidate over an incremental scan). Idempotent — a second launch on a taken port bows out cleanly.
 - **public/index.html** — the dashboard. Live board of warm threads (each with its own ticking countdown), summary cards, re-warm cause split, two charts.
 - **alarm.js** — headless tier-downgrade guard (`bun run check`, exits 1 if the cache silently drops 1h → 5m).
 - **lib/meter.js** — v1.1 `/usage` meter logger. Spawns headless `claude -p --no-session-persistence --strict-mcp-config --output-format json "/usage"` (0 tokens), parses the prose, appends to `data/meter.jsonl` (gitignored). Billed-call tripwire writes `data/meter.disabled`. Run hourly by `run-notify.vbs`; read by `/api/meter`.

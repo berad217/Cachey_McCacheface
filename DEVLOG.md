@@ -300,3 +300,53 @@ Observed effect: the page itself (`/`) hit Bun.serve's 10 s `idleTimeout` and
 failed to load while scans were queued - the daily-driver dashboard is
 barely usable at current data volume, independent of v1.1.
 Needs an incremental scan (per-file mtime cache) - its own piece of work.
+
+## 2026-10-19 - Incremental scan: dashboard responsive again
+
+Fixes the "Found" above. Metrics, subagent exclusion and scope guards are
+unchanged; this is purely how the same numbers get computed.
+
+### Decision
+- **Per-file parse cache, in memory** (`lib/scan.js` `fileCache`), keyed by
+  path + `mtimeMs` + `size`. Unchanged file -> cached records, no read.
+- **Append-only tail parse.** A grown file is read from the last consumed
+  byte, not from 0 - the live session files are the large ones and change on
+  every poll. Guard: the 256 bytes before the old offset must still match;
+  shrink or a changed prefix -> full re-parse. An unterminated last line is
+  taken only if it is complete JSON, else left for the next read (same answer
+  a full read gives at that moment). Stable re-sort of old ++ new equals a
+  stable sort of the whole file, so record order is identical too.
+- **Key prefilter:** lines without `"output_tokens"` skip `JSON.parse`
+  (tool results and user lines are most of the bytes). Exact, since
+  serialized JSON writes keys literally.
+- **No event-loop starvation.** `analyze()` is now a generator core with two
+  drivers: sync `analyze()` (CLI, `alarm.js`, `notify.js`) and
+  `analyzeAsync()`, which hands the loop back every 20 ms (reads in 8 MB
+  chunks, so even one huge file yields). `server.js` serves
+  stale-while-revalidate: a stale summary starts one refresh and waits at most
+  1 s for it, else returns the previous result. Scan starts at server boot;
+  `idleTimeout` raised to 120 s so the cold first `/api/summary` isn't dropped.
+- Zero deps kept. Rejected: worker thread (more moving parts than yielding
+  needs) and an on-disk cache (persistence is a separate decision; the
+  server is long-lived, so in-memory is enough there).
+
+### Measured (713 files / 6.3 GB)
+- Identity: one process, one fixed `now`: old full scan, new cold, new warm,
+  `analyzeAsync`, old again -> all five `JSON.stringify` outputs equal.
+- Before: every call ~20-27 s. After: cold 15-17 s (I/O bound), **warm
+  0.12-0.15 s** (incl. re-reading the live sessions' appended bytes).
+- Server (`cachey-server`): during the cold scan `/` and `/api/meter`
+  answered in 2-14 ms; cold `/api/summary` 200 after 19.6 s; warm
+  `/api/summary` 0.12-0.15 s. Before: `/` timed out, `/api/meter` 15-34 s.
+- `lib/scan.test.js` (9 tests): cached load == full parse for appends,
+  out-of-order/tied timestamps, half-written line, no trailing newline,
+  CRLF, rewritten prefix, shrink, lines > 8 MB chunk, vanished file. A
+  separate probe (prefix corrupted outside the signature window) confirmed
+  the append path really reads only new bytes.
+
+### Not changed
+- `bun run scan` / `bun run check` are one-shot processes, so they still pay
+  the cold ~15 s each run. Fine for an hourly task; an on-disk cache would
+  fix it if it ever matters.
+- Cache key is mtime + size: a same-size, same-mtime rewrite would be missed.
+  Transcripts are append-only, so not a real case.

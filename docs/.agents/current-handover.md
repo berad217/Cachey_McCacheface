@@ -54,12 +54,12 @@ today's `DEVLOG.md` entry):
 ## Known limitations (don't mistake these for bugs)
 - Re-warm detection is a **heuristic** (warm-prefix-collapse + large rebuild, gated on the preceding time gap vs. the session's actual tier TTL: beyond it = idle/avoidable, inside it = "tool" bucket, cause unverified). Upper-bound-ish. The sub-TTL "tool" bucket's cause (compaction vs. something else) is inferred, not confirmed — see "Since v1 shipped" above.
 - Cost weights (read 0.1x, 1h write 2.0x, output ~5x) are **assumptions from API pricing** — still uncalibrated. The % meter is now readable (see above), but nothing records it yet.
-- No test suite. Verification is empirical (`bun run scan` / hit `/api/summary`).
+- Tests: `bun test` covers the meter parser and the incremental scan cache (cache == full parse). Metric logic itself is still verified empirically (`bun run scan` / hit `/api/summary`).
 - v1 scope is **locked** (see spec.md "does NOT"): no /usage correlation, no fast-mode pricing, no subagent transcripts, no DB. Don't drift without a decision.
 
 ## Next steps
 - **Immediate:** let the meter log run. Gate: one week (to ~2026-10-26) of hourly `data/meter.jsonl` rows with no unexplained gaps. Then decide on v2 calibration (DEVLOG 2026-10-19 has why it also needs subagent transcripts).
-- **Known perf bug (unfixed):** `analyze()` takes ~22 s on 6.3 GB of transcripts and blocks the server; the dashboard's 15 s poll vs 5 s cache keeps it permanently scanning. Fix = incremental per-file mtime cache. See DEVLOG 2026-10-19 "Found".
+- **Perf bug: fixed 2026-10-19** (incremental per-file cache + stale-while-revalidate server; warm scan ~0.13 s, routes stay responsive during the ~15 s cold scan at boot). One-shot `bun run scan` / `check` still pay the cold scan each run. See DEVLOG "Incremental scan".
 - **Elective (Brad's call):**
   - Swap to the mod API `$.session.usage()` (structured, reportedly CLI >= 2.1.287) if it pans out — cleaner than parsing prose. Official endpoint: watch #13585.
   - Persist daily snapshots → plot warm ratio / idle waste over many days.
