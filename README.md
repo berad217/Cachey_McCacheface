@@ -20,6 +20,8 @@ fleet-side, with no announcement).
 bun run start      # dashboard at http://localhost:4317
 bun run check      # headless tier-downgrade alarm (exit 1 if it fires)
 bun run scan       # one-shot ASCII summary to the console
+bun run meter      # log one /usage meter reading (0 tokens) to data/meter.jsonl
+bun test           # meter parser tests
 ```
 
 That's the whole install. There is no step 2. It never phones home, never writes to

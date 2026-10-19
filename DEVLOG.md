@@ -224,3 +224,79 @@ correlate against Cachey's computed cost-equivalent to calibrate the cost
 weights. Still v2 / outside spec.md's locked scope - needs an explicit
 decision. Design tension: Cachey itself stays zero-network, but the `claude`
 child process it would spawn talks to Anthropic.
+
+## 2026-10-19 - Decision: lift the scope lock for a meter logger only (v1.1)
+
+### Decision
+Option B of three: **record and display** the `/usage` meter. Don't calibrate yet.
+- A) Keep the lock - rejected: the meter history only exists if something
+  records it now; deciding v2 later with zero data is worse than with 2 weeks.
+- **B) Logger + dashboard card - chosen.** ~1 session. spec.md gains a v1.1
+  section; the "does NOT" guards are narrowed, not removed.
+- C) Full calibration (Delta-% vs weighted tokens) - deferred to v2, gated on
+  one clean week of B's data.
+
+### Why calibration can't come first (measured, last 7 days, weighted units)
+- Subagent transcripts are **50.8%** of weighted usage; top-level sessions
+  (all v1 scans) are 49.2%. Fitting the meter against v1's numbers would fit
+  against half the input. C needs the subagent guard lifted too.
+- Model mix is 99.8% Opus 5.5, so one scale factor ("units per %") would do -
+  no per-model terms needed. Good news for C.
+- Resolution: ~380M units against 60% weekly -> 1% ~ 6M units, ~0.4%/h.
+  Hourly deltas are mostly 0 or 1 integer steps: enough for one scalar over
+  1-2 weeks, not enough to separate the read / write / output weights.
+- Meter is account-wide (claude.ai chat, other devices); transcripts are
+  this machine only. Becomes noise in any fit.
+
+### Design calls for B
+- Spawn `claude` via `Bun.spawn` with an argv array (no shell), so nothing
+  can MSYS-rewrite `/usage` into a billed prompt. Resolve `claude.exe`
+  explicitly (`%USERPROFILE%\.local\bin`), same stale-PATH lesson as the
+  2026-07-23 bun launcher regression.
+- Billed-call tripwire: `total_cost_usd > 0`, any output tokens, or
+  `duration_api_ms > 0` -> append an error row, write `data/meter.disabled`,
+  exit 2. Polling stays off until a human deletes the flag.
+- Every reading stores the raw `.result` prose alongside parsed fields.
+  Parse failures become logged error rows, never silent nulls.
+- `--bare` was considered (skips hooks/MCP per poll) and rejected: it
+  disables OAuth, so `/usage` can't authenticate. `--strict-mcp-config`
+  instead (no MCP servers spawned per poll).
+- Log lives in the repo's own `data/` (gitignored), not `~/.claude`.
+
+### Built (same day)
+- `lib/meter.js` (parser, envelope check, spawn, append, tail reader),
+  `lib/meter.test.js` (11 tests: live fixture, `H:MM` and bare `H`,
+  12am/12pm, time-only, Dec->Jan year wrap, DST, auth-expired, billed,
+  unknown shape), `bun run meter`, `bun test`.
+- `run-notify.vbs` runs `lib/meter.js` alongside `notify.js` each hour - the
+  Scheduled Task itself is unchanged.
+- `/api/meter` (log tail only, never spawns `claude`) + dashboard card:
+  per-limit % with bar, time to reset, last-reading age, red status line for
+  failed / disabled / >2h stale with the fix named (e.g. `claude /login`).
+
+### Verified
+- Live readings from PowerShell, Git Bash and `wscript run-notify.vbs`
+  (the scheduler's path): all `ok`, 0 cost, ~2.8-3.1 s. `--strict-mcp-config`
+  roughly halved wall time (5.6 s -> 2.8 s). Git Bash is safe because the
+  argv array never passes through a shell.
+- Disabled flag: present -> exit 1, `disabled` row logged, no `claude` call.
+- Side effects per poll: no new transcript. `~/.claude.json` gets two keys
+  rewritten (`cachedGrowthBookFeaturesAt`, `pluginUsage`) - CLI startup
+  bookkeeping, not data Cachey reads. Cachey still never writes `~/.claude`
+  itself; the child process does this much.
+- Reset instants jitter by 1 minute between calls (17:19Z -> 17:20Z, 14:59Z
+  -> 15:00Z within 30 min). Harmless for display; v2 must not treat a
+  1-minute shift as a new window.
+- **Not verified:** the billed tripwire end-to-end (unit-tested only - forcing
+  a real billed call to prove it would cost quota). The one-week clean-log
+  gate starts now.
+
+### Found (not fixed - out of scope)
+`analyze()` now reads 713 transcripts / 6.3 GB in ~22 s, synchronously, so it
+blocks Bun's event loop: `/api/meter` took 34 s behind it. With a 5 s server
+cache and a 15 s page poll, every refresh re-runs the full 22 s scan, so the
+server is effectively always scanning. v1 was sized at 289 sessions.
+Observed effect: the page itself (`/`) hit Bun.serve's 10 s `idleTimeout` and
+failed to load while scans were queued - the daily-driver dashboard is
+barely usable at current data volume, independent of v1.1.
+Needs an incremental scan (per-file mtime cache) - its own piece of work.

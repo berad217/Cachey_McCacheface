@@ -1,6 +1,6 @@
 # Handover - Cachey_McCacheface
 
-_Last updated: 2026-10-19 (usage-meter section only; rest as of 2026-07-03 — later commits `2ab49e0` public-release prep and `dd9ae9a` launcher fix are in `DEVLOG.md`). This is the ephemeral "where we are now" doc. The durable stuff lives in spec.md / DEVLOG.md / onboarding.md — don't duplicate it here._
+_Last updated: 2026-10-19 (usage meter, v1.1 logger, perf finding; rest as of 2026-07-03 — later commits `2ab49e0` public-release prep and `dd9ae9a` launcher fix are in `DEVLOG.md`). This is the ephemeral "where we are now" doc. The durable stuff lives in spec.md / DEVLOG.md / onboarding.md — don't duplicate it here._
 
 ## Quick Start
 New session, cwd is Cachey_McCacheface:
@@ -37,6 +37,7 @@ today's `DEVLOG.md` entry):
 ## State of the world (live bits worth knowing)
 - A dev server may already be running on :4317 from a prior session. The launcher is idempotent (a second start bows out cleanly). `Get-Process bun` to check; `bun run start` or the desktop shortcut to (re)launch.
 - An hourly Scheduled Task **"Cachey tier watch"** pops a Windows balloon only if the cache tier silently drops 1h→5m; silent otherwise. Remove with `Unregister-ScheduledTask -TaskName "Cachey tier watch"` (also delete `run-notify.vbs`).
+  - **Since 2026-10-19 (v1.1) the same hourly run also logs a `/usage` meter reading** to `data/meter.jsonl`. If `data/meter.disabled` exists, a billed call was detected and polling is off until you delete it. `auth` rows mean the standalone CLI login expired: `claude /login`.
   - **Launches via `run-notify.vbs` (wscript), not `bun.exe` directly (changed 2026-06-29).** `bun.exe` is a console app, so the scheduler used to pop a focusable console window every run and steal keyboard focus mid-typing. The `.vbs` runs bun with a hidden window (`Run cmd, 0, False`); the task is also flagged `Hidden`. `notify.js` is unchanged. If you ever rewire the action back to `bun.exe`, the focus-theft bug returns.
 
 ## How we got here (the why, condensed)
@@ -57,9 +58,9 @@ today's `DEVLOG.md` entry):
 - v1 scope is **locked** (see spec.md "does NOT"): no /usage correlation, no fast-mode pricing, no subagent transcripts, no DB. Don't drift without a decision.
 
 ## Next steps
-- **Immediate:** none. The project is at its natural "done" line — use it.
+- **Immediate:** let the meter log run. Gate: one week (to ~2026-10-26) of hourly `data/meter.jsonl` rows with no unexplained gaps. Then decide on v2 calibration (DEVLOG 2026-10-19 has why it also needs subagent transcripts).
+- **Known perf bug (unfixed):** `analyze()` takes ~22 s on 6.3 GB of transcripts and blocks the server; the dashboard's 15 s poll vs 5 s cache keeps it permanently scanning. Fix = incremental per-file mtime cache. See DEVLOG 2026-10-19 "Found".
 - **Elective (Brad's call):**
-  - Automated `/usage` snapshot logger — poll headless `/usage` (not through Git Bash), append readings, correlate against Cachey's computed cost-equivalent over time. Replaces the old "type the % by hand" idea. v2 scope: needs a decision.
   - Swap to the mod API `$.session.usage()` (structured, reportedly CLI >= 2.1.287) if it pans out — cleaner than parsing prose. Official endpoint: watch #13585.
   - Persist daily snapshots → plot warm ratio / idle waste over many days.
 

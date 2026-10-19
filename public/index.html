@@ -52,6 +52,10 @@
   .misstable td { padding: 4px 8px; border-bottom: 0.5px solid var(--line); font-variant-numeric: tabular-nums; }
   .misstable tr:last-child td { border-bottom: none; }
   .foot { color: var(--hint); font-size: 12px; margin-top: 26px; text-align: center; }
+  .meterstatus { font-size: 12px; color: var(--hint); margin: 0 0 26px; }
+  .meterstatus.stale { color: var(--cold); }
+  .meterbar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 8px; overflow: hidden; }
+  .meterbar > div { height: 100%; }
 </style>
 </head>
 <body>
@@ -60,6 +64,10 @@
   <p class="sub">Every thread you touched recently keeps its own warm cache on its own clock. Jump back to one before its countdown hits zero and its context is re-read cheap; let it expire and the next turn there rebuilds it once.</p>
 
   <div id="banner" class="banner" style="display:none"></div>
+
+  <p class="section">Usage meter &mdash; account-wide, from <code>/usage</code> (all devices, not just this machine)</p>
+  <div class="grid" id="meter" style="margin-bottom:6px"></div>
+  <div class="meterstatus" id="meterstatus"></div>
 
   <p class="section">Warm threads &mdash; soonest to expire first</p>
   <div class="board" id="board"></div>
@@ -203,6 +211,50 @@ function renderThreads() {
     : "";
 }
 
+const METER_STALE_MS = 2 * 3600000; // hourly poller: two missed runs = stale
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" })[c]); }
+function dur(ms) {
+  const m = Math.max(0, Math.round(ms / 60000)), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  return d ? d + "d " + (h % 24) + "h" : h ? h + "h " + (m % 60) + "m" : m + "m";
+}
+
+function renderMeter(mt) {
+  const el = document.getElementById("meter"), st = document.getElementById("meterstatus");
+  const ok = mt && mt.lastOk, now = Date.now();
+  if (!ok) {
+    el.innerHTML = '<div class="empty">No meter readings yet &mdash; run <code>bun run meter</code> (the hourly tier-watch task also takes one).</div>';
+  } else {
+    const limits = [["Session (5h)", ok.session], ["Week, all models", ok.week]]
+      .concat(Object.entries(ok.scoped || {}).map(([k, l]) => ["Week, " + k, l]));
+    el.innerHTML = limits.map(([k, l]) => {
+      const color = l.pct >= 90 ? css("--cold") : l.pct >= 70 ? css("--cool") : css("--warm");
+      const reset = l.resetsAt ? "resets in " + dur(Date.parse(l.resetsAt) - now) : (l.resetRaw ? "resets " + esc(l.resetRaw) : "");
+      return '<div class="card"><div class="k">' + esc(k) + '</div><div class="v">' + l.pct + '%</div>' +
+        '<div class="meterbar"><div style="width:' + Math.min(100, l.pct) + '%;background:' + color + '"></div></div>' +
+        '<div class="n">' + reset + '</div></div>';
+    }).join("");
+  }
+
+  // Status line: say why the numbers might be old, and what fixes it.
+  const last = mt && mt.last;
+  let msg = "", stale = false;
+  if (mt && mt.disabled) {
+    stale = true;
+    msg = "Polling disabled: a /usage call showed signs of being billed. Check data/meter.jsonl, then delete data/meter.disabled to resume.";
+  } else if (last && !last.ok) {
+    stale = true;
+    const fix = last.error === "auth" ? " - run claude /login" : "";
+    msg = "Last poll failed (" + esc(last.error) + fix + ") " + dur(now - Date.parse(last.ts)) + " ago" +
+      (ok ? "; numbers above are from " + dur(now - Date.parse(ok.ts)) + " ago." : ".");
+  } else if (ok) {
+    const age = now - Date.parse(ok.ts);
+    stale = age > METER_STALE_MS;
+    msg = "last reading " + dur(age) + " ago" + (stale ? " - stale: is the hourly task running?" : "");
+  }
+  st.className = "meterstatus" + (stale ? " stale" : "");
+  st.textContent = msg;
+}
+
 async function refresh() {
   try {
     const r = await fetch("/api/summary");
@@ -211,6 +263,11 @@ async function refresh() {
     renderThreads();
   } catch (e) {
     document.getElementById("foot").textContent = "could not reach server - is it running?";
+  }
+  try {
+    renderMeter(await (await fetch("/api/meter")).json());
+  } catch (e) {
+    // meter is optional; the summary path already reports an unreachable server
   }
 }
 

@@ -32,6 +32,7 @@ See Brad's global preferences (his Claude Code `CLAUDE.md`) for the full picture
 - **server.js** — Bun server on :4317. Serves the dashboard at `/` and JSON at `/api/summary` (5s cache). Idempotent — a second launch on a taken port bows out cleanly.
 - **public/index.html** — the dashboard. Live board of warm threads (each with its own ticking countdown), summary cards, re-warm cause split, two charts.
 - **alarm.js** — headless tier-downgrade guard (`bun run check`, exits 1 if the cache silently drops 1h → 5m).
+- **lib/meter.js** — v1.1 `/usage` meter logger. Spawns headless `claude -p --no-session-persistence --strict-mcp-config --output-format json "/usage"` (0 tokens), parses the prose, appends to `data/meter.jsonl` (gitignored). Billed-call tripwire writes `data/meter.disabled`. Run hourly by `run-notify.vbs`; read by `/api/meter`.
 - **launch.bat** + desktop shortcut — one-click start (server minimized, opens browser).
 
 ## Common Commands
@@ -39,6 +40,8 @@ See Brad's global preferences (his Claude Code `CLAUDE.md`) for the full picture
 bun run start    # dashboard at http://localhost:4317
 bun run check    # tier-downgrade alarm (exit 1 if it fires)
 bun run scan     # one-shot ASCII summary to the console
+bun run meter    # one /usage meter reading -> data/meter.jsonl (exit 2 = billed, polling disabled)
+bun test         # meter parser tests
 ```
 
 ---
@@ -47,7 +50,7 @@ bun run scan     # one-shot ASCII summary to the console
 
 Light sprint workflow:
 1. Implement against the locked `spec.md` scope.
-2. Verify by actually running it (`bun run scan` / hit the API) — there's no test suite yet; verification is empirical.
+2. Verify by actually running it (`bun run scan` / hit the API) — the only automated tests are the meter parser (`bun test`); everything else is verified empirically.
 3. Update `DEVLOG.md` with decisions + rationale while they're fresh.
 
 **The Confidence Bar:** HIGH → just do it. MODERATE → do it, note it in DEVLOG. LOW (multiple valid paths, real tradeoffs) → stop and offer 2-3 options.

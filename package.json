@@ -8,6 +8,8 @@
     "start": "bun run server.js",
     "check": "bun run alarm.js",
     "notify": "bun run notify.js",
-    "scan": "bun run lib/scan.js"
+    "scan": "bun run lib/scan.js",
+    "meter": "bun run lib/meter.js",
+    "test": "bun test"
   }
 }
