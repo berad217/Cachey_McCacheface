@@ -350,3 +350,94 @@ unchanged; this is purely how the same numbers get computed.
   fix it if it ever matters.
 - Cache key is mtime + size: a same-size, same-mtime rewrite would be missed.
   Transcripts are append-only, so not a real case.
+
+## 2026-10-20 - v1.2: API-equivalent cost counter (+ v1 parse bugs fixed)
+
+### Decision
+Brad asked whether there's enough reliable data for an API cost counter. Answer:
+yes, as "API-equivalent, within ~10%", not exact. He chose to build it into
+Cachey (option 1 of 3, over a CLI-only port), lifting two guards narrowly:
+subagents count for *cost* (not warmth), and a second append-only log. Folded in
+the compaction markers and per-model price weights from the same conversation.
+
+### Ground truth: Claude Code's `cost-state` lines
+Session transcripts carry `cost-state` records: Claude Code's own running cost
+(per-model tokens, `costUSD`, `hasUnknownModelCost`). 270 sessions have one.
+- Our pricing reproduces it: median tracker/transcript ratio **1.000** over 235
+  clean sessions. Price table + dedupe are right for what transcripts contain.
+- Transcripts run **~9% low** in aggregate (x1.092; p90 session 1.11). The gap:
+  ~34% of output tokens and 804M cache reads come from calls never written to a
+  transcript. Compaction summaries explain only ~7% of the missing reads; the
+  rest is unattributed.
+- Not usable as the live source: written at unknown moments (this resumed live
+  session had none), restarts with the process (12 sessions where tracker <
+  transcript), and misprices models it doesn't know (24 Sonnet 5.5 entries
+  flagged `hasUnknownModelCost`, ~2x high).
+- So: **logged** = transcript pricing (exact for those calls); **estimate** =
+  logged x factor, recomputed live from comparable sessions (tracker >= 0.97x
+  transcript, no unknown-model flag, >= 5 sessions; else no estimate at all).
+
+### v1 parse bugs (fixed - headline numbers change)
+1. **Every API response was counted ~3.2x.** Claude Code writes one line per
+   content block, each carrying the response's usage. v1 made a record per
+   line: 326,575 "turns" for 103,032 responses. Ratios mostly survived, totals
+   didn't, and every extra line of an idle re-warm read as a 0-minute "tool
+   re-warm" (the running-max `prevRead` never dropped). That is what the
+   0.0-minute "closest calls" of 2026-07-03 were: an artifact, not compaction.
+2. **Early lines can carry a mid-stream output count** (12,789 responses,
+   mostly subagents; first-line-wins drops 20.8M output tokens, ~$415). Dedupe
+   keeps the field-wise max. Copy-on-write (a patch map applied per pass), so
+   records cached and shared between scans are never mutated.
+3. `prevRead` was a running max: after any compaction, every later turn with a
+   >10K write looked like a collapse. Now it is the previous call's read.
+
+Before -> after (top-level sessions, all history): turns 326,575 -> 103,032;
+idle re-warms 616 -> 510 (98 moved to compaction); "tool" re-warms 2,918 ->
+154 compaction rebuilds + 137 other sub-TTL misses; avoidable waste 3% -> 12%
+(reads were triple-counted in the denominator; now dollars at per-model rates,
+$1,286 of $10,848). The spec's original done-criteria numbers (~17% waste,
+537 idle pickups) predate all three fixes; they're history, not targets.
+
+### Design calls
+- Cost reuses scan.js's per-file cache. Each scanner evicts only what it owns
+  (analyze: session files; cost: subagent files) - unchanged, analyze's
+  eviction would have dropped every subagent entry on each run.
+- Parse state (seen ids, pending compaction marker, latest cost-state) now
+  lives in each cache entry, so appended reads dedupe across the boundary.
+  Cloned per pass: analyze and cost can interleave on the same file.
+- Counter dedupes by message id machine-wide (forked/resumed sessions copy
+  history into new files); calibration dedupes per session (what one tracker
+  covers).
+- Log rows: finished local days only, appended once, never rewritten. Shown
+  per day: max(live, logged), half a cent of slack (rounded rows otherwise
+  beat live and showed as "from log"). First run backfilled 100 days
+  (2026-06-15..10-19); the oldest may be partial (cleanup had started).
+- `/api/cost` never blocks: last result or `{pending:true}`; a refresh waits
+  for any running summary scan. Cold boot: summary ~24 s, cost ~30 s. Warm:
+  40-140 ms.
+- `claude-haiku-5-5` (4 calls) left unpriced on purpose: its price is tiered by
+  prompt size and its cache rates weren't in the source. The status line goes
+  red only when unpriced calls reach 1% of the month (a new *main* model).
+- Fast mode: 2x on every component (cache columns assumed). Web search $0.01
+  each, confirmed against the tracker to the cent.
+
+### First run (2026-10-20)
+today $128 (est $140) / week $768 / month $4,212 (est $4,598) / since 06-15
+$21,396 (est $23,355). Factor x1.092 from 235 sessions - matches the
+independent Python cross-check (x1.091).
+
+### Verified
+- `bun test`: 37 pass (17 new). Dedupe, also across an append without mutating
+  cached records; growing output; compaction marker across an append; quoted
+  keys not mistaken for markers; latest cost-state; prices; windows;
+  calibration; log append-once and survival of deleted transcripts.
+- Dashboard on :4317 renders the cost cards + 35-day chart; `bun run check`
+  OK; `bun run cost` matches `/api/cost`.
+
+### Not done
+- "Compact before you leave" hint on the warm board (needs per-thread context
+  size) - parked.
+- Repricing logged rows if list prices change (rows keep per-model tokens, so
+  it's possible later).
+- Sub-TTL misses from before ~2026-09-17 can't be attributed (no markers then),
+  so "other" is an upper bound.

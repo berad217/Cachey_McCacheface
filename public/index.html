@@ -69,6 +69,13 @@
   <div class="grid" id="meter" style="margin-bottom:6px"></div>
   <div class="meterstatus" id="meterstatus"></div>
 
+  <p class="section">API-equivalent cost &mdash; this machine's Claude Code, subagents included, at API list prices (what it would cost on the API, not plan quota)</p>
+  <div class="grid" id="cost" style="margin-bottom:6px"></div>
+  <div class="chartbox" id="costchartbox" style="display:none;margin-bottom:6px">
+    <div class="cwrap" style="height:130px"><canvas id="costChart" role="img" aria-label="API-equivalent cost per day"></canvas></div>
+  </div>
+  <div class="meterstatus" id="coststatus"></div>
+
   <p class="section">Warm threads &mdash; soonest to expire first</p>
   <div class="board" id="board"></div>
   <div class="cooled" id="cooled"></div>
@@ -82,7 +89,7 @@
   </div>
 
   <div class="chartbox">
-    <p class="section">Closest calls &mdash; cache missed despite being inside the TTL window (cause unverified: compaction, a big tool add, or a real early eviction &mdash; closest gap first)</p>
+    <p class="section">Closest calls &mdash; cache missed inside the TTL window with no compaction before it (cause not recorded: a big tool add, or a real early eviction &mdash; closest gap first)</p>
     <div id="subttl"></div>
   </div>
 
@@ -102,10 +109,11 @@
 
 <script src="/vendor/chart.umd.js"></script>
 <script>
-const GRAY = "#b4b2a9", TEAL = "#1d9e75", AMBER = "#ef9f27";
-let state = null, gapsChart = null, projChart = null;
+const GRAY = "#b4b2a9", PALE = "#dedcd3", TEAL = "#1d9e75", AMBER = "#ef9f27", VIOLET = "#7f77dd";
+let state = null, gapsChart = null, projChart = null, costChart = null;
 
 function fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(0)+"M" : n >= 1e3 ? (n/1e3).toFixed(0)+"k" : ""+Math.round(n); }
+function usd(n) { return "$" + n.toLocaleString("en-US", { minimumFractionDigits: n < 100 ? 2 : 0, maximumFractionDigits: n < 100 ? 2 : 0 }); }
 function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 
 function renderStatic(d) {
@@ -121,17 +129,21 @@ function renderStatic(d) {
   document.getElementById("cards").innerHTML = [
     ["Cache tier", (g.tier1hPct*100).toFixed(2)+"% 1h", "of all writes"],
     ["Warm hit ratio", (g.warmRatio*100).toFixed(1)+"%", fmt(g.read)+" read warm"],
-    ["Avoidable waste", "~"+(g.wastePct*100).toFixed(0)+"%", "of warm-read spend"],
+    ["Avoidable waste", "~"+(g.wastePct*100).toFixed(0)+"%", usd(g.idleWasteUsd)+" of "+usd(g.warmReadUsd)+" warm reads"],
     ["Idle pickups", fmt(g.idleReWarms), "threads left >1h"],
+    ["Compactions", fmt(g.compactions), g.coldCompactions+" started after the cache expired"],
   ].map(([k,v,n]) => '<div class="card"><div class="k">'+k+'</div><div class="v">'+v+'</div><div class="n">'+n+'</div></div>').join("");
 
-  const idle = g.idleReWarmTokens, tool = g.toolReWarmTokens, tot = Math.max(1, idle+tool);
+  const idle = g.idleReWarmTokens, comp = g.compactReWarmTokens, tool = g.toolReWarmTokens;
+  const tot = Math.max(1, idle+comp+tool);
   document.getElementById("splitbar").innerHTML =
     '<div style="width:'+(idle/tot*100)+'%;background:'+AMBER+';color:#412402">'+fmt(idle)+'</div>' +
-    '<div style="width:'+(tool/tot*100)+'%;background:'+GRAY+';color:#2c2c2a">'+fmt(tool)+'</div>';
+    '<div style="width:'+(comp/tot*100)+'%;background:'+GRAY+';color:#2c2c2a">'+fmt(comp)+'</div>' +
+    '<div style="width:'+(tool/tot*100)+'%;background:'+PALE+';color:#2c2c2a">'+fmt(tool)+'</div>';
   document.getElementById("splitlegend").innerHTML =
     '<span><span class="dot" style="background:'+AMBER+'"></span>Idle &mdash; you stepped away ('+g.idleReWarms+')</span>' +
-    '<span><span class="dot" style="background:'+GRAY+'"></span>Tool &mdash; compaction / big add ('+g.toolReWarms+')</span>';
+    '<span><span class="dot" style="background:'+GRAY+'"></span>Compaction &mdash; rebuild after a compaction ('+g.compactReWarms+')</span>' +
+    '<span><span class="dot" style="background:'+PALE+'"></span>Other &mdash; inside TTL, no compaction ('+g.toolReWarms+')</span>';
 
   const gb = g.gapBuckets;
   if (gapsChart) gapsChart.destroy();
@@ -255,7 +267,65 @@ function renderMeter(mt) {
   st.textContent = msg;
 }
 
+const MODEL_NAMES = { "claude-opus-5-5": "Opus 5.5", "claude-opus-5": "Opus 5", "claude-opus-4-8": "Opus 4.8",
+  "claude-fable-5-1": "Fable 5.1", "claude-fable-5": "Fable 5", "claude-sonnet-5-5": "Sonnet 5.5",
+  "claude-sonnet-5": "Sonnet 5", "claude-haiku-4-5": "Haiku 4.5" };
+
+function renderCost(c) {
+  const el = document.getElementById("cost"), st = document.getElementById("coststatus");
+  const box = document.getElementById("costchartbox");
+  if (!c || c.pending) {
+    el.innerHTML = '<div class="empty">' + (c && c.error ? "Cost scan failed: " + esc(c.error)
+      : "Computing &mdash; the first scan also reads subagent transcripts, so it takes a little longer.") + '</div>';
+    st.textContent = ""; box.style.display = "none";
+    return;
+  }
+  const w = c.windows, f = c.calibration.factor;
+  const sinceLabel = "Since " + new Date(w.all.from + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  el.innerHTML = [["Today", w.today], ["This week", w.week], ["This month", w.month], [sinceLabel, w.all]].map(([k, x]) =>
+    '<div class="card"><div class="k">' + esc(k) + '</div><div class="v">' + usd(x.logged) + '</div>' +
+    '<div class="n">' + (x.estimate === null ? "logged calls only" : "&asymp; " + usd(x.estimate) + " with unlogged calls") + '</div></div>'
+  ).join("");
+
+  box.style.display = "block";
+  const days = c.daily;
+  if (costChart) costChart.destroy();
+  costChart = new Chart(document.getElementById("costChart"), {
+    type: "bar",
+    data: { labels: days.map(d => d.date.slice(5)),
+      datasets: [{ data: days.map(d => +d.usd.toFixed(2)), backgroundColor: days.map(d => d.source === "log" ? GRAY : VIOLET), borderRadius: 3 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => usd(ctx.parsed.y) + (days[ctx.dataIndex].source === "log" ? " (from log)" : "") } } },
+      scales: { y: { beginAtZero: true, ticks: { color: css("--muted"), callback: (v) => "$" + v }, grid: { color: css("--line") } },
+                x: { ticks: { color: css("--muted"), maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { display: false } } } }
+  });
+
+  const models = (c.byModel.month || []).filter(m => m.priced && m.usd >= 0.01).slice(0, 4)
+    .map(m => esc(MODEL_NAMES[m.model] || m.model) + " " + usd(m.usd)).join(" &middot; ");
+  const parts = [];
+  if (models) parts.push("this month: " + models);
+  parts.push(f === null ? "no calibration yet (needs " + c.calibration.minSessions + " sessions with a full tracker snapshot)"
+    : "estimate = logged &times; " + f.toFixed(3) + ", measured against Claude Code's own tracker over " + c.calibration.sessions + " sessions");
+  parts.push("list prices as of " + esc(c.pricesAsOf));
+  let bad = false;
+  if (c.unpriced.length) {
+    // Red once unpriced calls are a real share of the month (a new main model);
+    // a handful of side calls on a new small model stays a quiet note.
+    if (w.month.unpricedCalls >= 0.01 * Math.max(1, w.month.calls)) bad = true;
+    parts.push("unpriced (not counted): " + c.unpriced.map(u => esc(u.model) + " &times;" + u.calls).join(", ") + " &mdash; add to lib/prices.js");
+  }
+  if (c.log.error) { bad = true; parts.push("daily log error: " + esc(c.log.error)); }
+  else parts.push(c.log.days + " days in data/cost-daily.jsonl");
+  st.className = "meterstatus" + (bad ? " stale" : "");
+  st.innerHTML = parts.join(" &middot; ");
+}
+
 async function refresh() {
+  try {
+    renderCost(await (await fetch("/api/cost")).json());
+  } catch (e) {
+    // reported by the summary path below if the server is down
+  }
   try {
     const r = await fetch("/api/summary");
     state = await r.json();

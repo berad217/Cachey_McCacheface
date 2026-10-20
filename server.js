@@ -3,6 +3,7 @@
 // Run: bun run start  ->  http://localhost:4317
 
 import { analyzeAsync } from "./lib/scan.js";
+import { costAsync } from "./lib/cost.js";
 import { readLatest } from "./lib/meter.js";
 
 const PORT = Number(process.env.PORT || 4317);
@@ -56,6 +57,42 @@ async function summary() {
   return fresh || stale;
 }
 
+// Cost counter (lib/cost.js): its own slower cache. It also reads subagent
+// transcripts, which the summary doesn't, so it never delays /api/summary: a
+// request gets the last result (or {pending:true}) at once and starts a
+// refresh if that result is old. A refresh waits for any running summary scan
+// so the two never parse the same files at the same time.
+let costCache = { at: 0, data: null, error: null };
+let costInflight = null;
+const COST_CACHE_MS = 60000;
+
+function refreshCost() {
+  if (!costInflight) {
+    costInflight = (inflight || Promise.resolve())
+      .then(() => costAsync(Date.now()))
+      .then(
+        (data) => {
+          costCache = { at: Date.now(), data, error: null };
+          if (data.log.error) console.error("cost log: " + data.log.error);
+        },
+        (e) => {
+          costCache = { ...costCache, error: String(e && e.message ? e.message : e) };
+          console.error("cost scan failed: " + costCache.error);
+        },
+      )
+      .finally(() => {
+        costInflight = null;
+      });
+  }
+  return costInflight;
+}
+
+function costNow() {
+  if (Date.now() - costCache.at >= COST_CACHE_MS) refreshCost();
+  if (costCache.data) return costCache.data;
+  return { pending: true, error: costCache.error };
+}
+
 const indexUrl = new URL("./public/index.html", import.meta.url);
 const chartUrl = new URL("./public/vendor/chart.umd.js", import.meta.url);
 
@@ -69,6 +106,11 @@ try {
       const url = new URL(req.url);
       if (url.pathname === "/api/summary") {
         return new Response(JSON.stringify(await summary()), {
+          headers: { "content-type": "application/json", "cache-control": "no-store" },
+        });
+      }
+      if (url.pathname === "/api/cost") {
+        return new Response(JSON.stringify(costNow()), {
           headers: { "content-type": "application/json", "cache-control": "no-store" },
         });
       }
@@ -91,6 +133,7 @@ try {
   console.log("Cachey_McCacheface dashboard running at http://localhost:" + PORT);
   console.log("API: http://localhost:" + PORT + "/api/summary");
   refresh(); // warm the parse cache before the first page load asks for it
+  refreshCost(); // runs after that scan, then parses subagent transcripts
 } catch (e) {
   // Second launch / port already taken: the existing instance is serving. Bow out cleanly.
   if (String(e && e.code) === "EADDRINUSE" || /in use|EADDRINUSE/i.test(String(e))) {

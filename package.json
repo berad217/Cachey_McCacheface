@@ -10,6 +10,7 @@
     "notify": "bun run notify.js",
     "scan": "bun run lib/scan.js",
     "meter": "bun run lib/meter.js",
+    "cost": "bun run lib/cost.js",
     "test": "bun test"
   }
 }
