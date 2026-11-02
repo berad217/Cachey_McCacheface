@@ -472,3 +472,21 @@ databases or interfering with their writer locks.
   sessions API, invalid window (400), page delivery and ASCII output. Executing
   the page renderer with a DOM stub verified grouping, collapsed history,
   empty state and HTML escaping. The temporary server was stopped afterward.
+
+## 2026-11-02 - Session model and effort (job 002)
+
+- Session rows now expose `model` and `effort` in the API, ASCII CLI and compact
+  dashboard tags. Codex takes both from the latest `turn_context`, including
+  appended model switches. Missing metadata resets to `-` rather than retaining
+  an earlier turn's settings; the existing incremental/read-only loader is reused.
+- Read-only inspection of 290 local Claude transcripts (945,075 records) found
+  top-level assistant `effort` on 306,748 records and `perTurnEffort` on 275,754.
+  Values were `medium`, `high` and `xhigh`. Moderate-confidence choice: prefer
+  the explicitly recorded per-turn value, then the session `effort` value on
+  that same assistant record. Never infer effort from thinking content or tokens.
+- RED first: required fixtures failed on missing model/effort; a further fixture
+  failed on the real Claude effort fields before their implementation. GREEN:
+  48 tests pass, including latest models, incremental switches, missing metadata,
+  Claude effort precedence and clearing stale effort.
+- Fixture smoke checks verified API fields, ASCII CLI output, panel tags,
+  missing-field dashes and HTML escaping. The temporary server was stopped.

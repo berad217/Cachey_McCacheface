@@ -61,11 +61,18 @@ That's the whole install. There is no step 2. It never phones home, never writes
 
 The Sessions panel lists local Claude Code sessions and Codex threads, including
 CLI threads missing from the Codex desktop app and subagents with their parent id.
-Each row shows its vendor, name, working folder, app/CLI, last activity time and
+Each row shows its vendor, model and effort, name, working folder, app/CLI, last activity time and
 the first 200 characters of its last assistant message. Codex names come from the
 last matching `session_index.jsonl` entry, then the subagent nickname. If a Codex
 working folder has `.babel/outbox/`, its newest three note filenames and first
 lines appear too (first lines are capped at 4 KiB).
+
+Model and effort reflect the latest recorded turn: Codex uses `turn_context.model`
+and `turn_context.reasoning_effort`; Claude Code uses the latest assistant's
+`message.model` and top-level `perTurnEffort` (falling back to `effort`). Both
+Claude effort fields are present in real transcripts on this machine. A missing
+model or effort shows `-`; thinking tokens or message text never imply effort.
+The API exposes these as `model` and `effort` on every row, and the CLI prints both.
 
 **Running** means the transcript grew within 60 seconds; it is an activity
 heuristic, not proof that a process is alive. **Idle** means activity within the

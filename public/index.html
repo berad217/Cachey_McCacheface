@@ -332,7 +332,8 @@ function renderCost(c) {
 function renderSessions(rows) {
   const container = document.getElementById("sessions");
   const rowHtml = r => '<article class="thread session ' + esc(r.state) + '">' +
-    '<div class="tproj">' + esc(r.name) + '<span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app) + '</span></div>' +
+    '<div class="tproj">' + esc(r.name) + '<span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app) + '</span>' +
+    '<span class="pill">' + esc(r.model || "-") + ' · ' + esc(r.effort || "-") + '</span></div>' +
     '<div class="tmeta">' + esc(r.cwd || "Folder not recorded") + '</div>' +
     '<div class="tmeta">' + esc(r.id) + (r.parent ? ' · parent: ' + esc(r.parent) : '') +
     ' · last activity ' + esc(new Date(r.lastActivity).toLocaleString()) + '</div>' +
