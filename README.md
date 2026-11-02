@@ -80,6 +80,23 @@ window (24 hours by default); **old** means beyond it. The page refreshes every
 15 seconds, groups running before idle, and folds old sessions into history.
 Other machines are not included.
 
+Vendor chips above Sessions select All / Claude Code / Codex, with counts from
+the full inventory. The selection is remembered in localStorage when available.
+Warm Claude rows show a live `57m left · 99% warm` chip, linked by full session id;
+the warm board uses that session's title and falls back to its project folder.
+Cold rows have no warmth chip.
+
+Codex workers nest under their Claude owner when the first human prompt contains
+an `Owner-Session: <Claude session id>` line. Generated environment/app context
+records preceding that prompt are skipped. Older prompts starting `Message from
+<NAME>` (optionally followed by a comma and description) infer ownership only
+when exactly one Claude session has that exact title. The row labels this as
+`owner (inferred)`; ambiguous or unmatched threads stay top-level. Codex subagents
+keep their Codex parent. Vendor filters promote children whose parent is hidden
+to top-level rows. Each child keeps its own activity state; a running descendant
+adds a worker count to its collapsed owner and brings that group above idle/history.
+The sessions API includes `owner` (Claude id or null) and `ownerInferred` (boolean).
+
 Click a session row to read its transcript beneath it. Open transcripts refresh
 every 15 seconds with newest items last and scroll to the end; closed panels
 make no transcript requests. Each item is capped at 2,000 characters with a

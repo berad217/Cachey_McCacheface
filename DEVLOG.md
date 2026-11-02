@@ -523,3 +523,36 @@ databases or interfering with their writer locks.
   DOM-stub checks verified escaping, lazy/closed/reopened reads, retained open
   state and scroll-to-end. No listening server was started. `git diff --check`
   passed. Files are ready for the coordinator to rerun tests and commit.
+
+## 2026-11-02 - Session warmth, vendor filters and worker owners (job 004)
+
+- Warmth records retain full session ids so the page can join them to Claude
+  rows. Live chips show remaining minutes and warm percentage, disappear on
+  expiry, and never attach to Codex ids. Warm cards use escaped session titles
+  with project-folder fallback. No Codex cache estimates were added.
+- Vendor chips show full-inventory counts and persist their selection with
+  guarded localStorage. Filtering promotes children with hidden parents to
+  top-level rows. Owner and parent links are vendor-aware, preserve subagent
+  hierarchy, and break malformed cycles. Children retain their activity state;
+  running descendants add a count to collapsed ancestors and promote their
+  group above idle/history without changing the owner's own state.
+- The reader resolves explicit Owner-Session ids before attempting exact-title
+  inference. Unmatched explicit ids do not fall back to inference. Only recorded
+  Claude titles qualify; duplicate titles remain ambiguous. API rows add owner
+  (id or null) and ownerInferred (boolean); prompt parsing fields stay private.
+- Moderate-confidence interpretation, grounded in real files: first user message
+  means the first human prompt, skipping generated environment/app context-only
+  records. All 16 local Codex rollouts start with generated context; the first
+  prompt in this worker then carries the owner marker. Legacy prompts include
+  a comma and coordinator description after the name, so inference extracts
+  that name and compares it exactly. It never scans later human messages.
+- Read-only inspection covered 290 Claude files and 16 Codex rollouts. The live
+  inventory contains 301 rows; this worker links explicitly to ROG BRICKY. Ten
+  Claude sessions share that title, so older workers correctly remain top-level.
+  All three recent warmth records join to full Claude session ids.
+- RED fixtures failed on missing owner fields and row warmth before implementation.
+  GREEN: 64 tests pass, covering linking/ambiguity, parent precedence, cycles,
+  full scan ids, title escaping, expiry, vendor selection/counts and unavailable
+  storage. Closing-owner tests verify hidden descendant reads are cancelled while
+  preserving child expansion state. `git diff --check` passed. No server was
+  started. Files are left uncommitted for the coordinator as instructed.
