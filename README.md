@@ -67,7 +67,7 @@ last matching `session_index.jsonl` entry (human renames win), then a
 `Worker-Name: <name>` line in the first human prompt, then the subagent nickname,
 then the working folder. Before falling back to the folder, legacy workers can
 infer a name from `.babel/outbox/`: every note modified between the recorded
-session start and last transcript growth must start `From: Codex worker <name>`
+first and newest record timestamps must start `From: Codex worker <name>`
 with the same name. Notes outside that window are ignored; absent start times,
 no matching notes, unreadable notes or mixed names leave the folder fallback.
 Inferred names appear muted and labelled `(inferred)`. The API's `nameSource`
@@ -83,7 +83,12 @@ Claude effort fields are present in real transcripts on this machine. A missing
 model or effort shows `-`; thinking tokens or message text never imply effort.
 The API exposes these as `model` and `effort` on every row, and the CLI prints both.
 
-**Running** means the transcript grew within 60 seconds; it is an activity
+Last activity is the newest valid record timestamp, tracked as lines are read
+for both vendors; file modification time is only a fallback when no record has
+a valid timestamp. Touching a file or appending older records does not renew
+recorded activity. Outbox windows use the earliest and newest record times.
+
+**Running** means a record is less than 60 seconds old; it is an activity
 heuristic, not proof that a process is alive. **Idle** means activity within the
 window (24 hours by default); **old** means beyond it. The page refreshes every
 15 seconds, groups running before idle, and folds old sessions into history.

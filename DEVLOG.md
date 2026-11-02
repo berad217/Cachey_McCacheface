@@ -584,3 +584,26 @@ databases or interfering with their writer locks.
   one legacy row uses `outbox`. DOM smoke checked muted/inferred rendering,
   escaping and explicit-name styling. No server was started. Files remain
   uncommitted for the coordinator to rerun tests and commit.
+
+## 2026-11-02 - Record-based session activity (job 006)
+
+- Both vendors now accumulate earliest/newest valid record timestamps while
+  consuming incremental JSONL lines. State, sorting and the outbox inference
+  window use those times, so frozen Windows file mtimes do not hide later work
+  after a restart. Tool, event and user records count alongside assistant records.
+  Older, invalid or timestamp-free appends cannot overwrite a recorded latest
+  time. Timestamp-free files retain the existing mtime fallback and touch behavior;
+  without a recorded start they still cannot infer a worker name. Legacy Codex
+  session-meta payload timestamps remain supported.
+- Moderate-confidence interpretation: first activity is the earliest timestamp
+  seen, making out-of-order records safe for window bounds. Keep that boundary
+  private as before; the API's lastActivity field and shape are unchanged.
+- RED: the stale-mtime regression reported idle and the two-hour-old mtime for a
+  record only 30 seconds old. GREEN: 75 tests pass (70 baseline plus five new
+  regressions), including frozen-mtime appends/restart, non-regressing times,
+  shared-outbox windows, Claude user records and missing/invalid-time fallback.
+- Live read-only verification found 303 rows: Cachey-001 through 004 now infer
+  their own outbox names, and Cachey-005/006 retain their explicit markers.
+  Warmth already uses usage-record timestamps; its one recent thread matched
+  the newest parsed usage time, so scan.js needed no change. No server was
+  started. Files remain uncommitted for the coordinator to rerun tests and commit.
