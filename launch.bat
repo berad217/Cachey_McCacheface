@@ -8,6 +8,7 @@ rem Resolve bun without relying on PATH: Explorer-spawned cmd can carry a stale
 rem environment (missing .bun\bin), so prefer the default install location and
 rem only fall back to PATH lookup for non-standard installs.
 set "BUN=%USERPROFILE%\.bun\bin\bun.exe"
+if not exist "%BUN%" set "BUN=%APPDATA%\npm\node_modules\bun\bin\bun.exe"
 if not exist "%BUN%" set "BUN=bun"
 start "Cachey_McCacheface" /min "%BUN%" server.js
 ping -n 2 127.0.0.1 >nul

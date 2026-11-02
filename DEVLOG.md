@@ -490,3 +490,97 @@ databases or interfering with their writer locks.
   Claude effort precedence and clearing stale effort.
 - Fixture smoke checks verified API fields, ASCII CLI output, panel tags,
   missing-field dashes and HTML escaping. The temporary server was stopped.
+
+## 2026-11-02 - On-demand session transcripts (job 003)
+
+- Server binding now defaults to `127.0.0.1`, before adding transcript access.
+  `HOST` remains an override; README explicitly says not to expose the server,
+  since transcripts contain private content and the dashboard has no auth.
+- The session reader keeps a private vendor/id-to-file map, populated by its
+  existing inventory and duplicate-id selection. Transcript requests refresh
+  that inventory, then resolve only through the map. Unknown, path-like,
+  wrong-vendor and deleted ids return 404; file paths never enter the API rows.
+- `lib/transcript.js` reads JSONL on demand with closed handles and a bounded
+  tail of items, ignoring malformed lines and incomplete final records. Real
+  local records confirmed Codex custom calls use `input` and custom results use
+  `custom_tool_call_output`; Claude messages use both strings and content blocks.
+  Only Codex response items are displayed, avoiding event-message duplicates.
+  Reasoning yields a hidden note; text and tool output cap at 2,000 characters
+  with the exact omitted count. Claude tool inputs use compact one-line JSON.
+- Moderate-confidence choice: default to 200 items and accept integer limits
+  1-1,000, returning 400 otherwise, to bound response memory and page size.
+  The API returns an array ordered as recorded, newest last. Item timestamps
+  absent from a record are null rather than invented.
+- Native session disclosure rows load only when expanded. Open rows refresh
+  on the existing page cycle and scroll to the end; closing a row or its history
+  parent cancels in-flight reads and suppresses hidden refreshes. Text, metadata
+  and tool names are HTML-escaped. Open state survives inventory refreshes.
+- RED: new fixtures failed on the missing transcript method after the 48-test
+  baseline passed. GREEN: 54 tests pass, covering both vendor shapes, ordering,
+  limit tails, unknown/path-like ids, deletion, append refresh, duplicate event
+  exclusion, malformed tails and truncation for both vendors. Isolated route
+  smoke checks verified 200/400/404, no-store and loopback serve configuration;
+  DOM-stub checks verified escaping, lazy/closed/reopened reads, retained open
+  state and scroll-to-end. No listening server was started. `git diff --check`
+  passed. Files are ready for the coordinator to rerun tests and commit.
+
+## 2026-11-02 - Session warmth, vendor filters and worker owners (job 004)
+
+- Warmth records retain full session ids so the page can join them to Claude
+  rows. Live chips show remaining minutes and warm percentage, disappear on
+  expiry, and never attach to Codex ids. Warm cards use escaped session titles
+  with project-folder fallback. No Codex cache estimates were added.
+- Vendor chips show full-inventory counts and persist their selection with
+  guarded localStorage. Filtering promotes children with hidden parents to
+  top-level rows. Owner and parent links are vendor-aware, preserve subagent
+  hierarchy, and break malformed cycles. Children retain their activity state;
+  running descendants add a count to collapsed ancestors and promote their
+  group above idle/history without changing the owner's own state.
+- The reader resolves explicit Owner-Session ids before attempting exact-title
+  inference. Unmatched explicit ids do not fall back to inference. Only recorded
+  Claude titles qualify; duplicate titles remain ambiguous. API rows add owner
+  (id or null) and ownerInferred (boolean); prompt parsing fields stay private.
+- Moderate-confidence interpretation, grounded in real files: first user message
+  means the first human prompt, skipping generated environment/app context-only
+  records. All 16 local Codex rollouts start with generated context; the first
+  prompt in this worker then carries the owner marker. Legacy prompts include
+  a comma and coordinator description after the name, so inference extracts
+  that name and compares it exactly. It never scans later human messages.
+- Read-only inspection covered 290 Claude files and 16 Codex rollouts. The live
+  inventory contains 301 rows; this worker links explicitly to ROG BRICKY. Ten
+  Claude sessions share that title, so older workers correctly remain top-level.
+  All three recent warmth records join to full Claude session ids.
+- RED fixtures failed on missing owner fields and row warmth before implementation.
+  GREEN: 64 tests pass, covering linking/ambiguity, parent precedence, cycles,
+  full scan ids, title escaping, expiry, vendor selection/counts and unavailable
+  storage. Closing-owner tests verify hidden descendant reads are cancelled while
+  preserving child expansion state. `git diff --check` passed. No server was
+  started. Files are left uncommitted for the coordinator as instructed.
+
+## 2026-11-02 - CLI worker names (job 005)
+
+- Codex names now prefer the latest session-index rename, then `Worker-Name:`
+  in the first human prompt, then the subagent nickname. The existing owner
+  parser's generated-context skipping and first-prompt boundary are shared;
+  later user messages cannot rename the worker. API rows expose `nameSource`;
+  Claude recorded titles use `index`, while untitled rows use `folder`.
+- Before folder fallback, outbox inference checks every note modified inside
+  the session's start-to-last-growth window. All must begin with the same
+  `From: Codex worker <name>` line; unrelated, unreadable or conflicting notes
+  refuse inference. Newest-three display stays unchanged. Inferred names are
+  muted and labelled, with escaped text. Note contents and times are refreshed
+  each inventory pass, so edits and deletions cannot leave a stale identity.
+- Moderate-confidence interpretation: the recorded session-meta timestamp is
+  first activity, paired with the existing last-growth timestamp; note mtimes
+  determine membership inclusively. Real local rollouts contain both payload
+  and outer session-meta timestamps. Without a recorded start, keep the folder
+  rather than assigning earlier workers' notes. Nicknames take precedence over
+  inference, which only replaces the folder fallback.
+- RED: new naming fixtures failed before implementation, after a 64-test green
+  baseline. GREEN: 70 tests pass, covering marker/index/nickname precedence,
+  successive workers sharing an outbox, ambiguity beyond the newest three notes,
+  note deletion/edits, absent starts and folder fallback. Live read-only smoke
+  checked all 302 rows' nameSource values and confirmed Cachey-005 uses `marker`;
+  one legacy row uses `outbox`. DOM smoke checked muted/inferred rendering,
+  escaping and explicit-name styling. No server was started. Files remain
+  uncommitted for the coordinator to rerun tests and commit.

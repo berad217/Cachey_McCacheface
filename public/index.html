@@ -29,6 +29,7 @@
   .thread { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 14px 16px; }
   .thread.urgent { border-color: var(--cool); }
   .tproj { font-size: 14px; font-weight: 500; }
+  .name-inferred { color: var(--muted); }
   .tcount { font-size: 30px; font-weight: 500; line-height: 1.15; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
   .tmeta { font-size: 12px; color: var(--muted); }
   .pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 0.5px solid var(--line); margin-left: 6px; vertical-align: 2px; color: var(--muted); }
@@ -60,6 +61,13 @@
   .session .preview { font-size: 13px; white-space: pre-wrap; margin: 8px 0 0; }
   .session.running { border-color: var(--warm); }
   .session-group { font-size: 13px; color: var(--muted); margin: 14px 0 8px; }
+  .session summary { cursor: pointer; }
+  .pill[hidden] { display: none; }
+  .session-children { margin: 12px 0 0 16px; }
+  #vendorfilters button { cursor: pointer; margin: 0 6px 8px 0; }
+  #vendorfilters [aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+  .transcript { max-height: 480px; overflow-y: auto; margin-top: 12px; cursor: text; }
+  .transcript pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 4px 0 14px; }
 </style>
 </head>
 <body>
@@ -86,6 +94,7 @@
 
   <p class="section">Sessions &mdash; Claude Code and Codex on this machine</p>
   <p class="tmeta">Running means transcript growth in the last 60 seconds, not a process check. Idle: within 24 hours. Other machines are not included.</p>
+  <div id="vendorfilters" role="group" aria-label="Filter sessions by vendor"></div>
   <div id="sessionsstatus" class="meterstatus" role="status"></div>
   <div id="sessions"></div>
 
@@ -119,6 +128,7 @@
 <script src="/vendor/chart.umd.js"></script>
 <script>
 const GRAY = "#b4b2a9", PALE = "#dedcd3", TEAL = "#1d9e75", AMBER = "#ef9f27", VIOLET = "#7f77dd";
+let sessionRows = [];
 let state = null, gapsChart = null, projChart = null, costChart = null;
 
 function fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(0)+"M" : n >= 1e3 ? (n/1e3).toFixed(0)+"k" : ""+Math.round(n); }
@@ -203,6 +213,7 @@ function renderSubTtl(d) {
 
 function renderThreads() {
   if (!state) return;
+  updateWarmChips();
   const now = Date.now();
   const threads = (state.threads || []).map(t => {
     const minsSince = (now - t.lastT) / 60000;
@@ -220,7 +231,7 @@ function renderThreads() {
       const urgent = t.remaining < 10;
       const color = urgent ? css("--cool") : css("--warm");
       return '<div class="thread' + (urgent ? ' urgent' : '') + '">' +
-        '<div class="tproj">' + t.project + '<span class="pill">' + t.tier + '</span></div>' +
+        '<div class="tproj">' + esc(threadTitle(t)) + '<span class="pill">' + t.tier + '</span></div>' +
         '<div class="tcount" style="color:' + color + '">' + m + 'm ' + String(s).padStart(2,"0") + 's</div>' +
         '<div class="tmeta">touched ' + Math.round(t.minsSince) + 'm ago &middot; ' + (t.warmRatio*100).toFixed(0) + '% warm</div>' +
         '</div>';
@@ -228,7 +239,7 @@ function renderThreads() {
   }
 
   document.getElementById("cooled").innerHTML = cooled.length
-    ? "recently cooled: " + cooled.map(t => t.project + " (" + Math.round(t.minsSince) + "m ago)").join(" &middot; ")
+    ? "recently cooled: " + cooled.map(t => esc(threadTitle(t)) + " (" + Math.round(t.minsSince) + "m ago)").join(" &middot; ")
     : "";
 }
 
@@ -329,27 +340,173 @@ function renderCost(c) {
   st.innerHTML = parts.join(" &middot; ");
 }
 
+const openTranscripts = new Set();
+const transcriptCache = new Map();
+const transcriptRequests = new Map();
+const sessionKey = r => JSON.stringify([r.vendor === "Codex" ? "codex" : "claude", r.id]);
+function transcriptElement(key) {
+  return [...document.querySelectorAll("details[data-session]")].find(el => el.dataset.session === key);
+}
+function transcriptVisible(el) {
+  if (!el?.open) return false;
+  for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+    if (parent.tagName === "DETAILS" && !parent.open) return false;
+  }
+  return true;
+}
+function fillTranscript(el, html) {
+  const panel = el.querySelector(".transcript");
+  panel.innerHTML = html;
+  panel.scrollTop = panel.scrollHeight;
+}
+async function refreshTranscript(key) {
+  if (transcriptRequests.has(key) || !transcriptVisible(transcriptElement(key))) return;
+  const controller = new AbortController();
+  transcriptRequests.set(key, controller);
+  try {
+    const [vendor, id] = JSON.parse(key);
+    const response = await fetch("/api/transcript?" + new URLSearchParams({ vendor, id, limit: 200 }), { signal: controller.signal });
+    if (!response.ok) throw new Error("Transcript unavailable (" + response.status + ")");
+    const items = await response.json();
+    const html = items.map(i => '<div class="tmeta">' + esc(i.time || "") + ' · ' + esc(i.kind) +
+      (i.tool ? ' · ' + esc(i.tool) : '') + '</div><pre>' + esc(i.text) + '</pre>').join('') || '<div class="empty">No transcript items.</div>';
+    if (controller.signal.aborted) return;
+    transcriptCache.set(key, html);
+    const el = transcriptElement(key);
+    if (transcriptVisible(el)) fillTranscript(el, html);
+  } catch (e) {
+    const el = transcriptElement(key);
+    if (!controller.signal.aborted && transcriptVisible(el)) fillTranscript(el, '<div class="empty">Transcript unavailable. Retry on the next refresh.</div>');
+  } finally {
+    if (transcriptRequests.get(key) === controller) transcriptRequests.delete(key);
+  }
+}
+document.getElementById("sessions").addEventListener("toggle", event => {
+  const el = event.target;
+  for (const [key, controller] of transcriptRequests) if (!transcriptVisible(transcriptElement(key))) {
+    controller.abort(); transcriptRequests.delete(key);
+  }
+  if (el.open) for (const key of openTranscripts) refreshTranscript(key);
+  if (!el.matches("details[data-session]")) {
+    return;
+  }
+  const key = el.dataset.session;
+  if (el.open) { openTranscripts.add(key); refreshTranscript(key); }
+  else {
+    openTranscripts.delete(key);
+    transcriptRequests.get(key)?.abort();
+    transcriptRequests.delete(key);
+  }
+}, true);
+
+const vendors = ["All", "Claude Code", "Codex"];
+let vendorFilter = "All";
+try { const saved = localStorage.getItem("cachey.vendorFilter"); if (vendors.includes(saved)) vendorFilter = saved; } catch {}
+function sessionSelection(rows, vendor) {
+  const counts = { All: rows.length, "Claude Code": 0, Codex: 0 };
+  for (const r of rows) if (r.vendor in counts) counts[r.vendor]++;
+  return { counts, rows: rows.filter(r => vendor === "All" || r.vendor === vendor) };
+}
+function threadTitle(t) {
+  return sessionRows.find(r => r.vendor === "Claude Code" && r.id === t.id)?.name || t.project;
+}
+function warmth(r) {
+  if (r.vendor !== "Claude Code") return "";
+  const t = state?.threads?.find(t => t.id === r.id);
+  if (!t) return "";
+  const left = t.ttlMin - (Date.now() - t.lastT) / 60000;
+  return left > 0 ? Math.ceil(left) + "m left · " + (t.warmRatio * 100).toFixed(0) + "% warm" : "";
+}
+function updateWarmChips() {
+  const rows = new Map(sessionRows.map(r => [sessionKey(r), r]));
+  for (const el of document.querySelectorAll("[data-warm-session]")) {
+    const label = warmth(rows.get(el.dataset.warmSession) || {});
+    el.textContent = label;
+    el.hidden = !label;
+  }
+}
+document.getElementById("vendorfilters").addEventListener("click", event => {
+  const vendor = event.target.closest("button[data-vendor]")?.dataset.vendor;
+  if (!vendors.includes(vendor)) return;
+  vendorFilter = vendor;
+  try { localStorage.setItem("cachey.vendorFilter", vendor); } catch {}
+  renderSessions(sessionRows);
+});
+// Parent ids are vendor-local; only owner links cross vendors.
+function sessionForest(rows) {
+  const byKey = new Map(rows.map(r => [sessionKey(r), r]));
+  const parents = new Map();
+  for (const r of rows) {
+    const target = r.parent ? sessionKey({vendor: r.vendor, id: r.parent}) :
+      r.vendor === "Codex" && r.owner ? sessionKey({vendor: "Claude Code", id: r.owner}) : null;
+    if (target && target !== sessionKey(r) && byKey.has(target)) parents.set(sessionKey(r), target);
+  }
+  // Malformed/cyclic links must never hide a row or recurse forever.
+  for (const key of parents.keys()) {
+    const seen = new Set([key]); let p = parents.get(key);
+    while (p) { if (seen.has(p)) { parents.delete(key); break; } seen.add(p); p = parents.get(p); }
+  }
+  const children = new Map();
+  for (const r of rows) {
+    const p = parents.get(sessionKey(r));
+    if (p) { if (!children.has(p)) children.set(p, []); children.get(p).push(r); }
+  }
+  return { roots: rows.filter(r => !parents.has(sessionKey(r))), children };
+}
 function renderSessions(rows) {
+  sessionRows = rows;
   const container = document.getElementById("sessions");
-  const rowHtml = r => '<article class="thread session ' + esc(r.state) + '">' +
-    '<div class="tproj">' + esc(r.name) + '<span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app) + '</span>' +
-    '<span class="pill">' + esc(r.model || "-") + ' · ' + esc(r.effort || "-") + '</span></div>' +
+  const selection = sessionSelection(rows, vendorFilter);
+  document.getElementById("vendorfilters").innerHTML = vendors.map(v => '<button type="button" class="pill" data-vendor="' + esc(v) + '" aria-pressed="' + (v === vendorFilter) + '">' + esc(v) + ' (' + selection.counts[v] + ')</button>').join(' ');
+  const tree = sessionForest(selection.rows);
+  const allTree = sessionForest(rows);
+  const runningWorkers = r => (allTree.children.get(sessionKey(r)) || []).reduce((n, child) => n + (child.vendor === "Codex" && child.state === "running" ? 1 : 0) + runningWorkers(child), 0);
+  const rowHtml = r => {
+    const owner = r.owner && rows.find(o => o.vendor === "Claude Code" && o.id === r.owner);
+    const workers = runningWorkers(r);
+    const label = warmth(r);
+    return '<article class="thread session ' + esc(r.state) + '"><details data-session="' + esc(sessionKey(r)) + '"' + (openTranscripts.has(sessionKey(r)) ? ' open' : '') + '><summary>' +
+    '<div class="tproj"><span' + (r.nameSource === "outbox" ? ' class="name-inferred" title="Name inferred from outbox notes">' : '>') + esc(r.name) + (r.nameSource === "outbox" ? ' (inferred)' : '') + '</span><span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app || "CLI") + '</span>' +
+    '<span class="pill">' + esc(r.model || "-") + ' · ' + esc(r.effort || "-") + '</span>' +
+    '<span class="pill">' + esc(r.state) + '</span>' +
+    '<span class="pill" data-warm-session="' + esc(sessionKey(r)) + '"' + (label ? '' : ' hidden') + '>' + esc(label) + '</span>' +
+    (workers ? '<span class="pill">' + workers + ' worker' + (workers === 1 ? '' : 's') + ' running</span>' : '') + '</div>' +
+    (owner ? '<div class="tmeta">' + (r.ownerInferred ? 'owner (inferred): ' : 'owner: ') + esc(owner.name) + '</div>' : '') +
     '<div class="tmeta">' + esc(r.cwd || "Folder not recorded") + '</div>' +
     '<div class="tmeta">' + esc(r.id) + (r.parent ? ' · parent: ' + esc(r.parent) : '') +
     ' · last activity ' + esc(new Date(r.lastActivity).toLocaleString()) + '</div>' +
     (r.lastAssistant ? '<p class="preview">' + esc(r.lastAssistant) + '</p>' : '') +
-    (r.notes || []).map(n => '<div class="tmeta">' + esc(n.name) + ': ' + esc(n.firstLine) + '</div>').join('') + '</article>';
+    (r.notes || []).map(n => '<div class="tmeta">' + esc(n.name) + ': ' + esc(n.firstLine) + '</div>').join('') +
+    '</summary><div class="transcript">' + (transcriptCache.get(sessionKey(r)) || 'Loading transcript...') + '</div>' +
+    '<div class="session-children">' + (tree.children.get(sessionKey(r)) || []).map(rowHtml).join('') + '</div></details></article>';
+  };
+  const groupState = r => runningWorkers(r) ? "running" : r.state;
   const group = state => {
-    const items = rows.filter(r => r.state === state);
+    const items = tree.roots.filter(r => groupState(r) === state);
     return items.length ? '<h2 class="session-group">' + state[0].toUpperCase() + state.slice(1) + ' (' + items.length + ')</h2>' + items.map(rowHtml).join('') : '';
   };
-  const old = rows.filter(r => r.state === "old");
-  // Keep a user's expanded history open across polling cycles.
-  const open = container.querySelector("details")?.open;
-  container.innerHTML = rows.length ? group("running") + group("idle") +
+  const old = tree.roots.filter(r => groupState(r) === "old");
+  const open = container.querySelector(":scope > details")?.open;
+  container.innerHTML = selection.rows.length ? group("running") + group("idle") +
     (old.length ? '<details' + (open ? ' open' : '') + '><summary class="session-group">Old (' + old.length + ')</summary>' + old.map(rowHtml).join('') + '</details>' : '') :
     '<div class="empty">No local sessions found.</div>';
   document.getElementById("sessionsstatus").textContent = "Updated " + new Date().toLocaleTimeString();
+  const keys = new Set(rows.map(sessionKey));
+  for (const key of openTranscripts) if (!keys.has(key)) {
+    openTranscripts.delete(key); transcriptCache.delete(key);
+    transcriptRequests.get(key)?.abort(); transcriptRequests.delete(key);
+  }
+  for (const [key, controller] of transcriptRequests) if (!transcriptVisible(transcriptElement(key))) {
+    controller.abort(); transcriptRequests.delete(key);
+  }
+  for (const key of openTranscripts) {
+    const el = transcriptElement(key);
+    if (transcriptVisible(el)) {
+      if (transcriptCache.has(key)) fillTranscript(el, transcriptCache.get(key));
+      refreshTranscript(key);
+    }
+  }
+  renderThreads();
 }
 
 async function refreshSessions() {

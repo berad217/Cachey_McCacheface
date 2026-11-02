@@ -63,8 +63,17 @@ The Sessions panel lists local Claude Code sessions and Codex threads, including
 CLI threads missing from the Codex desktop app and subagents with their parent id.
 Each row shows its vendor, model and effort, name, working folder, app/CLI, last activity time and
 the first 200 characters of its last assistant message. Codex names come from the
-last matching `session_index.jsonl` entry, then the subagent nickname. If a Codex
-working folder has `.babel/outbox/`, its newest three note filenames and first
+last matching `session_index.jsonl` entry (human renames win), then a
+`Worker-Name: <name>` line in the first human prompt, then the subagent nickname,
+then the working folder. Before falling back to the folder, legacy workers can
+infer a name from `.babel/outbox/`: every note modified between the recorded
+session start and last transcript growth must start `From: Codex worker <name>`
+with the same name. Notes outside that window are ignored; absent start times,
+no matching notes, unreadable notes or mixed names leave the folder fallback.
+Inferred names appear muted and labelled `(inferred)`. The API's `nameSource`
+is `index`, `marker`, `outbox`, `nickname` or `folder` (`index` also covers Claude's
+recorded titles). Marker parsing skips generated context, just like owner linking.
+If a Codex working folder has `.babel/outbox/`, its newest three note filenames and first
 lines appear too (first lines are capped at 4 KiB).
 
 Model and effort reflect the latest recorded turn: Codex uses `turn_context.model`
@@ -79,6 +88,39 @@ heuristic, not proof that a process is alive. **Idle** means activity within the
 window (24 hours by default); **old** means beyond it. The page refreshes every
 15 seconds, groups running before idle, and folds old sessions into history.
 Other machines are not included.
+
+Vendor chips above Sessions select All / Claude Code / Codex, with counts from
+the full inventory. The selection is remembered in localStorage when available.
+Warm Claude rows show a live `57m left · 99% warm` chip, linked by full session id;
+the warm board uses that session's title and falls back to its project folder.
+Cold rows have no warmth chip.
+
+Codex workers nest under their Claude owner when the first human prompt contains
+an `Owner-Session: <Claude session id>` line. Generated environment/app context
+records preceding that prompt are skipped. Older prompts starting `Message from
+<NAME>` (optionally followed by a comma and description) infer ownership only
+when exactly one Claude session has that exact title. The row labels this as
+`owner (inferred)`; ambiguous or unmatched threads stay top-level. Codex subagents
+keep their Codex parent. Vendor filters promote children whose parent is hidden
+to top-level rows. Each child keeps its own activity state; a running descendant
+adds a worker count to its collapsed owner and brings that group above idle/history.
+The sessions API includes `owner` (Claude id or null) and `ownerInferred` (boolean).
+
+Click a session row to read its transcript beneath it. Open transcripts refresh
+every 15 seconds with newest items last and scroll to the end; closed panels
+make no transcript requests. Each item is capped at 2,000 characters with a
+`+N chars` marker for omitted text. Codex reasoning is shown as `[reasoning hidden]`.
+
+`GET /api/transcript?vendor=codex|claude&id=<session id>&limit=200` returns an
+array of `{time, kind, text, tool?}` items, oldest first within the last `limit`
+items. Kinds are `user`, `assistant`, `tool_call`, `tool_output`, and `note`.
+The optional limit must be an integer from 1 to 1,000 (otherwise HTTP 400).
+Unknown ids or vendors return 404. File paths resolve only from the session
+inventory, never from query text; transcript reads do not modify vendor files.
+
+The server binds to `127.0.0.1` by default. `HOST` overrides the bind address;
+**don't override it**: transcripts contain private messages and tool output and
+must never be exposed to the network. There is no authentication.
 
 `GET /api/sessions?window=24` returns all rows newest first; `window` is a positive
 number of hours setting the idle/old boundary, not a history filter. Invalid

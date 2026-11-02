@@ -100,11 +100,23 @@ const chartUrl = new URL("./public/vendor/chart.umd.js", import.meta.url);
 try {
   Bun.serve({
     port: PORT,
+    hostname: process.env.HOST || "127.0.0.1",
     // The cold first scan of a large transcript history can outlast Bun's 10s
     // default; /api/summary waits for it rather than dropping the socket.
     idleTimeout: 120,
     async fetch(req) {
       const url = new URL(req.url);
+      if (url.pathname === "/api/transcript") {
+        const vendor = url.searchParams.get("vendor");
+        const id = url.searchParams.get("id");
+        const limit = Number(url.searchParams.get("limit") ?? 200);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+          return new Response("limit must be an integer from 1 to 1000", { status: 400 });
+        }
+        const items = await sessions.transcript({ vendor, id, limit });
+        return items === null ? new Response("Unknown session", { status: 404 }) :
+          Response.json(items, { headers: { "cache-control": "no-store" } });
+      }
       if (url.pathname === "/api/sessions") {
         const window = url.searchParams.get("window") ?? 24;
         if (!Number.isFinite(Number(window)) || Number(window) <= 0) {
