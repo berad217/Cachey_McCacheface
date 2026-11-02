@@ -60,6 +60,9 @@
   .session .preview { font-size: 13px; white-space: pre-wrap; margin: 8px 0 0; }
   .session.running { border-color: var(--warm); }
   .session-group { font-size: 13px; color: var(--muted); margin: 14px 0 8px; }
+  .session summary { cursor: pointer; }
+  .transcript { max-height: 480px; overflow-y: auto; margin-top: 12px; cursor: text; }
+  .transcript pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 4px 0 14px; }
 </style>
 </head>
 <body>
@@ -329,27 +332,100 @@ function renderCost(c) {
   st.innerHTML = parts.join(" &middot; ");
 }
 
+const openTranscripts = new Set();
+const transcriptCache = new Map();
+const transcriptRequests = new Map();
+const sessionKey = r => JSON.stringify([r.vendor === "Codex" ? "codex" : "claude", r.id]);
+function transcriptElement(key) {
+  return [...document.querySelectorAll("details[data-session]")].find(el => el.dataset.session === key);
+}
+function transcriptVisible(el) {
+  if (!el?.open) return false;
+  for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+    if (parent.tagName === "DETAILS" && !parent.open) return false;
+  }
+  return true;
+}
+function fillTranscript(el, html) {
+  const panel = el.querySelector(".transcript");
+  panel.innerHTML = html;
+  panel.scrollTop = panel.scrollHeight;
+}
+async function refreshTranscript(key) {
+  if (transcriptRequests.has(key) || !transcriptVisible(transcriptElement(key))) return;
+  const controller = new AbortController();
+  transcriptRequests.set(key, controller);
+  try {
+    const [vendor, id] = JSON.parse(key);
+    const response = await fetch("/api/transcript?" + new URLSearchParams({ vendor, id, limit: 200 }), { signal: controller.signal });
+    if (!response.ok) throw new Error("Transcript unavailable (" + response.status + ")");
+    const items = await response.json();
+    const html = items.map(i => '<div class="tmeta">' + esc(i.time || "") + ' · ' + esc(i.kind) +
+      (i.tool ? ' · ' + esc(i.tool) : '') + '</div><pre>' + esc(i.text) + '</pre>').join('') || '<div class="empty">No transcript items.</div>';
+    if (controller.signal.aborted) return;
+    transcriptCache.set(key, html);
+    const el = transcriptElement(key);
+    if (transcriptVisible(el)) fillTranscript(el, html);
+  } catch (e) {
+    const el = transcriptElement(key);
+    if (!controller.signal.aborted && transcriptVisible(el)) fillTranscript(el, '<div class="empty">Transcript unavailable. Retry on the next refresh.</div>');
+  } finally {
+    if (transcriptRequests.get(key) === controller) transcriptRequests.delete(key);
+  }
+}
+document.getElementById("sessions").addEventListener("toggle", event => {
+  const el = event.target;
+  if (!el.matches("details[data-session]")) {
+    // Closing the old-session history also stops requests hidden inside it.
+    for (const [key, controller] of transcriptRequests) if (!transcriptVisible(transcriptElement(key))) {
+      controller.abort(); transcriptRequests.delete(key);
+    }
+    if (el.open) for (const key of openTranscripts) refreshTranscript(key);
+    return;
+  }
+  const key = el.dataset.session;
+  if (el.open) { openTranscripts.add(key); refreshTranscript(key); }
+  else {
+    openTranscripts.delete(key);
+    transcriptRequests.get(key)?.abort();
+    transcriptRequests.delete(key);
+  }
+}, true);
+
 function renderSessions(rows) {
   const container = document.getElementById("sessions");
-  const rowHtml = r => '<article class="thread session ' + esc(r.state) + '">' +
+  const rowHtml = r => '<article class="thread session ' + esc(r.state) + '"><details data-session="' + esc(sessionKey(r)) + '"' + (openTranscripts.has(sessionKey(r)) ? ' open' : '') + '><summary>' +
     '<div class="tproj">' + esc(r.name) + '<span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app) + '</span>' +
     '<span class="pill">' + esc(r.model || "-") + ' · ' + esc(r.effort || "-") + '</span></div>' +
     '<div class="tmeta">' + esc(r.cwd || "Folder not recorded") + '</div>' +
     '<div class="tmeta">' + esc(r.id) + (r.parent ? ' · parent: ' + esc(r.parent) : '') +
     ' · last activity ' + esc(new Date(r.lastActivity).toLocaleString()) + '</div>' +
     (r.lastAssistant ? '<p class="preview">' + esc(r.lastAssistant) + '</p>' : '') +
-    (r.notes || []).map(n => '<div class="tmeta">' + esc(n.name) + ': ' + esc(n.firstLine) + '</div>').join('') + '</article>';
+    (r.notes || []).map(n => '<div class="tmeta">' + esc(n.name) + ': ' + esc(n.firstLine) + '</div>').join('') +
+    '</summary><div class="transcript">' + (transcriptCache.get(sessionKey(r)) || 'Loading transcript...') + '</div></details></article>';
   const group = state => {
     const items = rows.filter(r => r.state === state);
     return items.length ? '<h2 class="session-group">' + state[0].toUpperCase() + state.slice(1) + ' (' + items.length + ')</h2>' + items.map(rowHtml).join('') : '';
   };
   const old = rows.filter(r => r.state === "old");
   // Keep a user's expanded history open across polling cycles.
-  const open = container.querySelector("details")?.open;
+  const open = container.querySelector(":scope > details")?.open;
   container.innerHTML = rows.length ? group("running") + group("idle") +
     (old.length ? '<details' + (open ? ' open' : '') + '><summary class="session-group">Old (' + old.length + ')</summary>' + old.map(rowHtml).join('') + '</details>' : '') :
     '<div class="empty">No local sessions found.</div>';
   document.getElementById("sessionsstatus").textContent = "Updated " + new Date().toLocaleTimeString();
+  const keys = new Set(rows.map(sessionKey));
+  for (const key of openTranscripts) if (!keys.has(key)) {
+    openTranscripts.delete(key); transcriptCache.delete(key);
+    transcriptRequests.get(key)?.abort(); transcriptRequests.delete(key);
+  }
+  for (const key of openTranscripts) {
+    const el = transcriptElement(key);
+    if (transcriptVisible(el)) {
+      if (transcriptCache.has(key)) fillTranscript(el, transcriptCache.get(key));
+      refreshTranscript(key);
+    }
+  }
 }
 
 async function refreshSessions() {

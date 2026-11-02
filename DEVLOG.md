@@ -490,3 +490,36 @@ databases or interfering with their writer locks.
   Claude effort precedence and clearing stale effort.
 - Fixture smoke checks verified API fields, ASCII CLI output, panel tags,
   missing-field dashes and HTML escaping. The temporary server was stopped.
+
+## 2026-11-02 - On-demand session transcripts (job 003)
+
+- Server binding now defaults to `127.0.0.1`, before adding transcript access.
+  `HOST` remains an override; README explicitly says not to expose the server,
+  since transcripts contain private content and the dashboard has no auth.
+- The session reader keeps a private vendor/id-to-file map, populated by its
+  existing inventory and duplicate-id selection. Transcript requests refresh
+  that inventory, then resolve only through the map. Unknown, path-like,
+  wrong-vendor and deleted ids return 404; file paths never enter the API rows.
+- `lib/transcript.js` reads JSONL on demand with closed handles and a bounded
+  tail of items, ignoring malformed lines and incomplete final records. Real
+  local records confirmed Codex custom calls use `input` and custom results use
+  `custom_tool_call_output`; Claude messages use both strings and content blocks.
+  Only Codex response items are displayed, avoiding event-message duplicates.
+  Reasoning yields a hidden note; text and tool output cap at 2,000 characters
+  with the exact omitted count. Claude tool inputs use compact one-line JSON.
+- Moderate-confidence choice: default to 200 items and accept integer limits
+  1-1,000, returning 400 otherwise, to bound response memory and page size.
+  The API returns an array ordered as recorded, newest last. Item timestamps
+  absent from a record are null rather than invented.
+- Native session disclosure rows load only when expanded. Open rows refresh
+  on the existing page cycle and scroll to the end; closing a row or its history
+  parent cancels in-flight reads and suppresses hidden refreshes. Text, metadata
+  and tool names are HTML-escaped. Open state survives inventory refreshes.
+- RED: new fixtures failed on the missing transcript method after the 48-test
+  baseline passed. GREEN: 54 tests pass, covering both vendor shapes, ordering,
+  limit tails, unknown/path-like ids, deletion, append refresh, duplicate event
+  exclusion, malformed tails and truncation for both vendors. Isolated route
+  smoke checks verified 200/400/404, no-store and loopback serve configuration;
+  DOM-stub checks verified escaping, lazy/closed/reopened reads, retained open
+  state and scroll-to-end. No listening server was started. `git diff --check`
+  passed. Files are ready for the coordinator to rerun tests and commit.

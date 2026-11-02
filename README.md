@@ -80,6 +80,22 @@ window (24 hours by default); **old** means beyond it. The page refreshes every
 15 seconds, groups running before idle, and folds old sessions into history.
 Other machines are not included.
 
+Click a session row to read its transcript beneath it. Open transcripts refresh
+every 15 seconds with newest items last and scroll to the end; closed panels
+make no transcript requests. Each item is capped at 2,000 characters with a
+`+N chars` marker for omitted text. Codex reasoning is shown as `[reasoning hidden]`.
+
+`GET /api/transcript?vendor=codex|claude&id=<session id>&limit=200` returns an
+array of `{time, kind, text, tool?}` items, oldest first within the last `limit`
+items. Kinds are `user`, `assistant`, `tool_call`, `tool_output`, and `note`.
+The optional limit must be an integer from 1 to 1,000 (otherwise HTTP 400).
+Unknown ids or vendors return 404. File paths resolve only from the session
+inventory, never from query text; transcript reads do not modify vendor files.
+
+The server binds to `127.0.0.1` by default. `HOST` overrides the bind address;
+**don't override it**: transcripts contain private messages and tool output and
+must never be exposed to the network. There is no authentication.
+
 `GET /api/sessions?window=24` returns all rows newest first; `window` is a positive
 number of hours setting the idle/old boundary, not a history filter. Invalid
 values return HTTP 400. `bun run sessions` prints the same list in ASCII;
