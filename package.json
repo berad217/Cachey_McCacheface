@@ -11,6 +11,7 @@
     "scan": "bun run lib/scan.js",
     "meter": "bun run lib/meter.js",
     "cost": "bun run lib/cost.js",
+    "sessions": "bun run lib/codex.js",
     "test": "bun test"
   }
 }

@@ -5,6 +5,7 @@
 import { analyzeAsync } from "./lib/scan.js";
 import { costAsync } from "./lib/cost.js";
 import { readLatest } from "./lib/meter.js";
+import { sessions } from "./lib/codex.js";
 
 const PORT = Number(process.env.PORT || 4317);
 
@@ -104,6 +105,13 @@ try {
     idleTimeout: 120,
     async fetch(req) {
       const url = new URL(req.url);
+      if (url.pathname === "/api/sessions") {
+        const window = url.searchParams.get("window") ?? 24;
+        if (!Number.isFinite(Number(window)) || Number(window) <= 0) {
+          return new Response("window must be a positive number of hours", { status: 400 });
+        }
+        return Response.json(sessions({ window }), { headers: { "cache-control": "no-store" } });
+      }
       if (url.pathname === "/api/summary") {
         return new Response(JSON.stringify(await summary()), {
           headers: { "content-type": "application/json", "cache-control": "no-store" },
