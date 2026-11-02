@@ -556,3 +556,31 @@ databases or interfering with their writer locks.
   storage. Closing-owner tests verify hidden descendant reads are cancelled while
   preserving child expansion state. `git diff --check` passed. No server was
   started. Files are left uncommitted for the coordinator as instructed.
+
+## 2026-11-02 - CLI worker names (job 005)
+
+- Codex names now prefer the latest session-index rename, then `Worker-Name:`
+  in the first human prompt, then the subagent nickname. The existing owner
+  parser's generated-context skipping and first-prompt boundary are shared;
+  later user messages cannot rename the worker. API rows expose `nameSource`;
+  Claude recorded titles use `index`, while untitled rows use `folder`.
+- Before folder fallback, outbox inference checks every note modified inside
+  the session's start-to-last-growth window. All must begin with the same
+  `From: Codex worker <name>` line; unrelated, unreadable or conflicting notes
+  refuse inference. Newest-three display stays unchanged. Inferred names are
+  muted and labelled, with escaped text. Note contents and times are refreshed
+  each inventory pass, so edits and deletions cannot leave a stale identity.
+- Moderate-confidence interpretation: the recorded session-meta timestamp is
+  first activity, paired with the existing last-growth timestamp; note mtimes
+  determine membership inclusively. Real local rollouts contain both payload
+  and outer session-meta timestamps. Without a recorded start, keep the folder
+  rather than assigning earlier workers' notes. Nicknames take precedence over
+  inference, which only replaces the folder fallback.
+- RED: new naming fixtures failed before implementation, after a 64-test green
+  baseline. GREEN: 70 tests pass, covering marker/index/nickname precedence,
+  successive workers sharing an outbox, ambiguity beyond the newest three notes,
+  note deletion/edits, absent starts and folder fallback. Live read-only smoke
+  checked all 302 rows' nameSource values and confirmed Cachey-005 uses `marker`;
+  one legacy row uses `outbox`. DOM smoke checked muted/inferred rendering,
+  escaping and explicit-name styling. No server was started. Files remain
+  uncommitted for the coordinator to rerun tests and commit.

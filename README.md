@@ -63,8 +63,17 @@ The Sessions panel lists local Claude Code sessions and Codex threads, including
 CLI threads missing from the Codex desktop app and subagents with their parent id.
 Each row shows its vendor, model and effort, name, working folder, app/CLI, last activity time and
 the first 200 characters of its last assistant message. Codex names come from the
-last matching `session_index.jsonl` entry, then the subagent nickname. If a Codex
-working folder has `.babel/outbox/`, its newest three note filenames and first
+last matching `session_index.jsonl` entry (human renames win), then a
+`Worker-Name: <name>` line in the first human prompt, then the subagent nickname,
+then the working folder. Before falling back to the folder, legacy workers can
+infer a name from `.babel/outbox/`: every note modified between the recorded
+session start and last transcript growth must start `From: Codex worker <name>`
+with the same name. Notes outside that window are ignored; absent start times,
+no matching notes, unreadable notes or mixed names leave the folder fallback.
+Inferred names appear muted and labelled `(inferred)`. The API's `nameSource`
+is `index`, `marker`, `outbox`, `nickname` or `folder` (`index` also covers Claude's
+recorded titles). Marker parsing skips generated context, just like owner linking.
+If a Codex working folder has `.babel/outbox/`, its newest three note filenames and first
 lines appear too (first lines are capped at 4 KiB).
 
 Model and effort reflect the latest recorded turn: Codex uses `turn_context.model`

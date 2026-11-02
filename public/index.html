@@ -29,6 +29,7 @@
   .thread { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 14px 16px; }
   .thread.urgent { border-color: var(--cool); }
   .tproj { font-size: 14px; font-weight: 500; }
+  .name-inferred { color: var(--muted); }
   .tcount { font-size: 30px; font-weight: 500; line-height: 1.15; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
   .tmeta { font-size: 12px; color: var(--muted); }
   .pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 0.5px solid var(--line); margin-left: 6px; vertical-align: 2px; color: var(--muted); }
@@ -465,7 +466,7 @@ function renderSessions(rows) {
     const workers = runningWorkers(r);
     const label = warmth(r);
     return '<article class="thread session ' + esc(r.state) + '"><details data-session="' + esc(sessionKey(r)) + '"' + (openTranscripts.has(sessionKey(r)) ? ' open' : '') + '><summary>' +
-    '<div class="tproj">' + esc(r.name) + '<span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app || "CLI") + '</span>' +
+    '<div class="tproj"><span' + (r.nameSource === "outbox" ? ' class="name-inferred" title="Name inferred from outbox notes">' : '>') + esc(r.name) + (r.nameSource === "outbox" ? ' (inferred)' : '') + '</span><span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app || "CLI") + '</span>' +
     '<span class="pill">' + esc(r.model || "-") + ' · ' + esc(r.effort || "-") + '</span>' +
     '<span class="pill">' + esc(r.state) + '</span>' +
     '<span class="pill" data-warm-session="' + esc(sessionKey(r)) + '"' + (label ? '' : ' hidden') + '>' + esc(label) + '</span>' +
