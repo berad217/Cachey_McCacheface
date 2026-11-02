@@ -56,6 +56,10 @@
   .meterstatus.stale { color: var(--cold); }
   .meterbar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 8px; overflow: hidden; }
   .meterbar > div { height: 100%; }
+  .session { margin-bottom: 10px; overflow-wrap: anywhere; }
+  .session .preview { font-size: 13px; white-space: pre-wrap; margin: 8px 0 0; }
+  .session.running { border-color: var(--warm); }
+  .session-group { font-size: 13px; color: var(--muted); margin: 14px 0 8px; }
 </style>
 </head>
 <body>
@@ -79,6 +83,11 @@
   <p class="section">Warm threads &mdash; soonest to expire first</p>
   <div class="board" id="board"></div>
   <div class="cooled" id="cooled"></div>
+
+  <p class="section">Sessions &mdash; Claude Code and Codex on this machine</p>
+  <p class="tmeta">Running means transcript growth in the last 60 seconds, not a process check. Idle: within 24 hours. Other machines are not included.</p>
+  <div id="sessionsstatus" class="meterstatus" role="status"></div>
+  <div id="sessions"></div>
 
   <div class="grid" id="cards"></div>
 
@@ -320,7 +329,41 @@ function renderCost(c) {
   st.innerHTML = parts.join(" &middot; ");
 }
 
+function renderSessions(rows) {
+  const container = document.getElementById("sessions");
+  const rowHtml = r => '<article class="thread session ' + esc(r.state) + '">' +
+    '<div class="tproj">' + esc(r.name) + '<span class="pill">' + esc(r.vendor) + ' · ' + esc(r.app) + '</span></div>' +
+    '<div class="tmeta">' + esc(r.cwd || "Folder not recorded") + '</div>' +
+    '<div class="tmeta">' + esc(r.id) + (r.parent ? ' · parent: ' + esc(r.parent) : '') +
+    ' · last activity ' + esc(new Date(r.lastActivity).toLocaleString()) + '</div>' +
+    (r.lastAssistant ? '<p class="preview">' + esc(r.lastAssistant) + '</p>' : '') +
+    (r.notes || []).map(n => '<div class="tmeta">' + esc(n.name) + ': ' + esc(n.firstLine) + '</div>').join('') + '</article>';
+  const group = state => {
+    const items = rows.filter(r => r.state === state);
+    return items.length ? '<h2 class="session-group">' + state[0].toUpperCase() + state.slice(1) + ' (' + items.length + ')</h2>' + items.map(rowHtml).join('') : '';
+  };
+  const old = rows.filter(r => r.state === "old");
+  // Keep a user's expanded history open across polling cycles.
+  const open = container.querySelector("details")?.open;
+  container.innerHTML = rows.length ? group("running") + group("idle") +
+    (old.length ? '<details' + (open ? ' open' : '') + '><summary class="session-group">Old (' + old.length + ')</summary>' + old.map(rowHtml).join('') + '</details>' : '') :
+    '<div class="empty">No local sessions found.</div>';
+  document.getElementById("sessionsstatus").textContent = "Updated " + new Date().toLocaleTimeString();
+}
+
+async function refreshSessions() {
+  try {
+    const response = await fetch("/api/sessions?window=24");
+    if (!response.ok) throw new Error("Sessions request failed");
+    renderSessions(await response.json());
+  } catch {
+    document.getElementById("sessionsstatus").textContent = "Sessions unavailable - displayed rows may be stale.";
+  }
+}
+
 async function refresh() {
+  // Start independently so the first summary scan cannot hold up this panel.
+  const sessionsRefresh = refreshSessions();
   try {
     renderCost(await (await fetch("/api/cost")).json());
   } catch (e) {
@@ -339,6 +382,7 @@ async function refresh() {
   } catch (e) {
     // meter is optional; the summary path already reports an unreachable server
   }
+  await sessionsRefresh;
 }
 
 refresh();

@@ -23,6 +23,7 @@ bun run check      # headless tier-downgrade alarm (exit 1 if it fires)
 bun run scan       # one-shot ASCII summary to the console
 bun run meter      # log one /usage meter reading (0 tokens) to data/meter.jsonl
 bun run cost       # API-equivalent cost: today / week / month / all time
+bun run sessions   # ASCII session inventory, Claude Code + Codex (local machine)
 bun test           # parser, scan and cost tests
 ```
 
@@ -55,6 +56,35 @@ That's the whole install. There is no step 2. It never phones home, never writes
 - **Closest calls** — every re-warm *inside* the TTL window with no compaction before it
   (should have hit cache, didn't), listed individually — project, gap, tokens, when —
   closest gap first, so you can look at instances instead of trusting a label.
+
+## Sessions: Claude Code and Codex
+
+The Sessions panel lists local Claude Code sessions and Codex threads, including
+CLI threads missing from the Codex desktop app and subagents with their parent id.
+Each row shows its vendor, name, working folder, app/CLI, last activity time and
+the first 200 characters of its last assistant message. Codex names come from the
+last matching `session_index.jsonl` entry, then the subagent nickname. If a Codex
+working folder has `.babel/outbox/`, its newest three note filenames and first
+lines appear too (first lines are capped at 4 KiB).
+
+**Running** means the transcript grew within 60 seconds; it is an activity
+heuristic, not proof that a process is alive. **Idle** means activity within the
+window (24 hours by default); **old** means beyond it. The page refreshes every
+15 seconds, groups running before idle, and folds old sessions into history.
+Other machines are not included.
+
+`GET /api/sessions?window=24` returns all rows newest first; `window` is a positive
+number of hours setting the idle/old boundary, not a history filter. Invalid
+values return HTTP 400. `bun run sessions` prints the same list in ASCII;
+`bun run sessions 48` changes the window to 48 hours.
+
+The reader scans `~/.codex/sessions/**/rollout-*.jsonl` and
+`~/.codex/session_index.jsonl`, using `$CODEX_HOME` instead of `~/.codex` when set,
+plus `~/.claude/projects/**/*.jsonl`. Unchanged files use cached metadata;
+append-only growth reads new bytes and incomplete lines wait for the next poll.
+Missing or unreadable files are skipped. All vendor files are opened read-only
+and closed after each pass; nothing under `~/.codex` or `~/.claude` is written,
+locked or renamed. This panel adds no Codex cost or cache-warmth estimates.
 
 ## How it decides what's a "re-warm"
 A heuristic, and it says so: the cached prefix read collapses versus the previous call and a
